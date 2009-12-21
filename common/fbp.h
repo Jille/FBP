@@ -21,4 +21,13 @@ struct Announcement
   char filename[32];  // 32 bytes of filename
 } __attribute__((__packed__));
 
+struct dataPacket {
+	char fileid;
+	char unused1;
+	char unused2;
+	char checksum[4];
+	pkt_count offset;
+	char data[FBP_PACKET_DATASIZE];
+} __attribute__((__packed__));
+
 #endif // FBP_GLOBAL_H
