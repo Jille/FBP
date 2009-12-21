@@ -32,9 +32,18 @@ send_announce_packet() {
 
 void
 read_request() {
-	char buf[128];
-	ssize_t len = recv(sfd, buf, sizeof(buf), 0);
-	len++; // XXX
+	struct RequestPacket rpkt;
+	if(recv(sfd, &rpkt, sizeof(rpkt), 0) == -1) {
+		err(1, "recv");
+	}
+	if(rpkt.offset > apkt.numPackets || rpkt.offset + rpkt.num > apkt.numPackets) {
+		return;
+	}
+	pkt_count n;
+	for(n = rpkt.offset; rpkt.offset + rpkt.num > n; n++) {
+		BM_SET(bitmask, n);
+	}
+	apkt.status = FBP_STATUS_TRANSFERRING;
 }
 
 void
@@ -102,7 +111,7 @@ main(int argc, char **argv) {
 	bzero(&apkt, sizeof(apkt));
 	apkt.zero = 0;
 	apkt.announceVer = FBP_ANNOUNCE_VERSION;
-	apkt.fileid = atoi(argv[1]); // XXX strtol / input check /etc
+	apkt.fileid = fileid;
 	apkt.status = FBP_STATUS_WAITING;
 	apkt.numPackets = ceil(st.st_size / FBP_PACKET_DATASIZE);
 	strncpy(apkt.filename, basename(argv[2]), sizeof(apkt.filename));
@@ -126,6 +135,18 @@ main(int argc, char **argv) {
 	return 0;
 
 	while(1) {
+		send_announce_packet();
+		if(apkt.status == FBP_STATUS_WAITING) {
+			sleep(1);
+		} else {
+			time_t start, now;
+			time(&start);
+			do {
+				transfer_packet();
+				time(&now);
+			} while(start == now && apkt.status == FBP_STATUS_TRANSFERRING);
+		}
+
 		struct timeval tmo = { 0, 0 };
 		while(1) {
 			fd_set fds;
@@ -134,15 +155,12 @@ main(int argc, char **argv) {
 				case -1:
 					err(1, "select");
 				case 0:
-					goto next_announce;
+					continue;
 				case 1:
 					read_request();
 					break;
 			}
 		}
-next_announce:
-		send_announce_packet();
-		sleep(1);
 	}
 
 	return 0;
