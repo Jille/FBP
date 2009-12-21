@@ -1,4 +1,4 @@
-CFLAGS=-g
+CFLAGS=-g -I../common
 LDFLAGS=
 
 fbpd: fbpd.c Makefile

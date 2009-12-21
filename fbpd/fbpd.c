@@ -1,18 +1,19 @@
 #include <stdio.h>
+#include <string.h>
 #include <libgen.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <netinet/in.h>
 #include "fbp.h"
 
 int fd;
-enum server_status status;
 struct sockaddr_in addr;
 socklen_t addrlen;
 struct Announcement apkt;
 
 void
 send_announce_packet() {
-	sendto(fd, apkt, sizeof(apkt), 0, addr, addrlen);
+	sendto(fd, &apkt, sizeof(apkt), 0, (struct sockaddr *)&addr, addrlen);
 }
 
 int
@@ -25,13 +26,13 @@ main(int argc, char **argv) {
 	bzero(&addr, sizeof(addr));
 	addr.sin_family = AF_INET;
 	addr.sin_addr.s_addr = inet_addr("255.255.255.255");
-	addr.sin_port = htons(FBP_PORT);
+	addr.sin_port = htons(FBP_DEFAULT_PORT);
 	addrlen = sizeof(addr);
 
 	bzero(&apkt, sizeof(apkt));
 	apkt.zero = 0;
 	apkt.announceVer = FBP_ANNOUNCE_VERSION;
-	apkt.status = FBPD_ANNOUNCE_WAITING;
+	apkt.status = FBP_STATUS_WAITING;
 	apkt.numPackets = 0; // XXX
 	strncpy(apkt.filename, basename(argv[2]), sizeof(apkt.filename));
 
