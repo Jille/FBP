@@ -137,12 +137,6 @@ main(int argc, char **argv) {
 
 	while(1) {
 		send_announce_packet();
-		sleep(1);
-	}
-	return 0;
-
-	while(1) {
-		send_announce_packet();
 		if(apkt.status == FBP_STATUS_WAITING) {
 			sleep(1);
 		} else {
