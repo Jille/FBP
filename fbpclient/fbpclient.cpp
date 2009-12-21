@@ -1,5 +1,5 @@
 #include "fbpclient.h"
-#include "../common/fbp_global.h"
+#include "../common/fbp.h"
 
 FbpClient::FbpClient(quint16 port, QObject *parent)
 : QUdpSocket(parent)

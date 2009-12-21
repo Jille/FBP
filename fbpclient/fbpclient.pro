@@ -9,5 +9,5 @@ SOURCES += main.cpp \
     fbpclient.cpp
 HEADERS += mainwindow.h \
     fbpclient.h \
-    ../common/fbp_global.h
+    ../common/fbp.h
 FORMS += mainwindow.ui
