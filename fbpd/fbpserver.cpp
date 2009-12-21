@@ -1,4 +1,4 @@
-#include "fbp_global.h"
+#include "../common/fbp_global.h"
 #include "fbpserver.h"
 
 FbpServer::FbpServer(quint16 port, QObject *parent)

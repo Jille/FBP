@@ -5,7 +5,7 @@
 #include <QFile>
 #include <QTimer>
 
-#include "fbp_global.h"
+#include "../common/fbp_global.h"
 
 class FbpServer : private QUdpSocket
 {

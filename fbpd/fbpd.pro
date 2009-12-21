@@ -10,4 +10,4 @@ TEMPLATE = app
 SOURCES += main.cpp \
     fbpserver.cpp
 HEADERS += fbpserver.h \
-    fbp_global.h
+    ../common/fbp_global.h
