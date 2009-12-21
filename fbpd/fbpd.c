@@ -1,17 +1,18 @@
+#include <arpa/inet.h>
+#include <assert.h>
 #include <err.h>
 #include <fcntl.h>
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
 #include <libgen.h>
-#include <unistd.h>
 #include <math.h>
-#include <sys/types.h>
+#include <netinet/in.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
-#include <sys/select.h>
-#include <arpa/inet.h>
-#include <netinet/in.h>
+#include <sys/types.h>
+#include <unistd.h>
 #include "fbp.h"
 #include "bitmask.h"
 
@@ -80,6 +81,7 @@ transfer_packet() {
 
 int
 main(int argc, char **argv) {
+	assert((1 >> 1) == 0 /* require little endian */);
 	struct stat st;
 	if(argc != 3) {
 		fprintf(stderr, "Usage: %s <fid> <file>\n", argv[0]);
