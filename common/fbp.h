@@ -25,7 +25,7 @@ struct dataPacket {
 	char fileid;
 	char unused1;
 	char unused2;
-	char checksum[4];
+	char checksum[5];
 	pkt_count offset;
 	char data[FBP_PACKET_DATASIZE];
 } __attribute__((__packed__));
