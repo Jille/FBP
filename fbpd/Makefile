@@ -1,5 +1,5 @@
 CFLAGS=-g -I../common
-LDFLAGS=
+LDFLAGS=-lm
 
 fbpd: fbpd.c Makefile
 	cc $(LDFLAGS) -o fbpd $(CFLAGS) fbpd.c
