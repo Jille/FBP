@@ -19,6 +19,7 @@ quint16 FbpClient::port() const
 void FbpClient::readAnnouncement( struct Announcement *a, int size )
 {
   qDebug() << "Read announcement with size " << size;
+
 }
 
 void FbpClient::setPort( quint16 port )
