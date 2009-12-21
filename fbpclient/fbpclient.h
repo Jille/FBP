@@ -4,8 +4,10 @@
 #include <QUdpSocket>
 #include <QFile>
 #include <QTimer>
+#include <QDir>
 
 #include "../common/fbp.h"
+#include "../common/bitmask.h"
 
 class FbpClient : public QUdpSocket
 {
@@ -20,6 +22,7 @@ signals:
   void       fileRemoved( int id );
 
 public slots:
+  void       startDownload( int id, const QDir &directory );
 
 private slots:
    void      slotReadyRead();
@@ -31,6 +34,8 @@ private:
      char    id;
      QString fileName;
      time_t  lastAnnouncement;
+     QString downloadFileName;
+     BM_DEFINE(bitmask);
    };
 
    void      readAnnouncement( struct Announcement *a, int size );

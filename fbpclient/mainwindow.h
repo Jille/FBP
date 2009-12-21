@@ -22,6 +22,7 @@ private:
     FbpClient      *fbp_;
 
 private slots:
+    void chooseDir();
     void on_pushButton_2_clicked();
     void on_autoDownload_toggled(bool checked);
 };

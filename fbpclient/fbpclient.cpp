@@ -6,6 +6,9 @@ FbpClient::FbpClient(quint16 port, QObject *parent)
 , file_( 0 )
 , knownFileClearTimer_( new QTimer() )
 {
+  // If this is a big-endian system, crash
+  Q_ASSERT((1 >> 1) == 0);
+
   connect( this,                 SIGNAL(       readyRead() ),
            this,                 SLOT(     slotReadyRead() ) );
   connect( knownFileClearTimer_, SIGNAL(         timeout() ),
@@ -79,6 +82,28 @@ void FbpClient::setPort( quint16 port )
 {
   setLocalPort( port );
   bind( port, QUdpSocket::ShareAddress );
+}
+
+void FbpClient::startDownload( int id, const QDir &downloadDir )
+{
+  int index = -1;
+  // Find this fileid in knownFiles_
+  for( int i = 0; i < knownFiles_.size(); ++i )
+    if( knownFiles_[i].id == id ) index = i;
+
+  if( index == -1 )
+  {
+    qWarning() << "Got startDownload() for an ID I don't know";
+    return;
+  }
+
+  // We will start downloading to downloadDir
+  QFile dataFile(    downloadDir.filePath( knownFiles_[index].fileName + ".data"  ) );
+  QFile bitmaskFile( downloadDir.filePath( knownFiles_[index].fileName + ".bmask" ) );
+  dataFile.open( QIODevice::WriteOnly );
+  bitmaskFile.open( QIODevice::ReadWrite );
+
+
 }
 
 void FbpClient::slotReadyRead()
