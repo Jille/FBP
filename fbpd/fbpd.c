@@ -13,7 +13,7 @@
 #include "fbp.h"
 
 int sfd, ffd;
-off_t fpos;
+pkt_count offset;
 struct sockaddr_in addr;
 socklen_t addrlen;
 struct Announcement apkt;
@@ -25,7 +25,9 @@ int *bitmask;
 
 void
 send_announce_packet() {
-	sendto(sfd, &apkt, sizeof(apkt), 0, (struct sockaddr *)&addr, addrlen);
+	if(sendto(sfd, &apkt, sizeof(apkt), 0, (struct sockaddr *)&addr, addrlen) == -1) {
+		err(1, "sendto");
+	}
 }
 
 void
@@ -33,6 +35,14 @@ read_request() {
 	char buf[128];
 	ssize_t len = recv(sfd, buf, sizeof(buf), 0);
 	// XXX
+}
+
+void
+transfer_packet() {
+	pkt_count n = offset;
+	while(!BM_ISSET(bitmask, n)) {
+		n = (n+1) % apkt.numPackets;
+	}
 }
 
 int
@@ -51,7 +61,7 @@ main(int argc, char **argv) {
 		err(1, "fstat(%s)", argv[2]);
 	}
 
-	fpos = 0;
+	offset = 0;
 
 	bzero(&addr, sizeof(addr));
 	addr.sin_family = AF_INET;
@@ -62,6 +72,7 @@ main(int argc, char **argv) {
 	bzero(&apkt, sizeof(apkt));
 	apkt.zero = 0;
 	apkt.announceVer = FBP_ANNOUNCE_VERSION;
+	apkt.fileid = atoi(argv[1]); // XXX strtol / input check /etc
 	apkt.status = FBP_STATUS_WAITING;
 	apkt.numPackets = ceil(st.st_size / FBP_PACKET_DATASIZE);
 	strncpy(apkt.filename, basename(argv[2]), sizeof(apkt.filename));
@@ -78,22 +89,28 @@ main(int argc, char **argv) {
 		err(1, "setsockopt");
 	}
 
-	send_announce_packet();
+	while(1) {
+		send_announce_packet();
+		sleep(1);
+	}
 	return 0;
 
 	while(1) {
-		fd_set fds;
 		struct timeval tmo = { 0, 0 };
-		FD_SET(sfd, &fds);
-		switch(select(sfd+1, &fds, NULL, NULL, &tmo)) {
-			case -1:
-				err(1, "select");
-			case 0:
-				break;
-			case 1:
-				read_request();
-				break;
+		while(1) {
+			fd_set fds;
+			FD_SET(sfd, &fds);
+			switch(select(sfd+1, &fds, NULL, NULL, &tmo)) {
+				case -1:
+					err(1, "select");
+				case 0:
+					goto next_announce;
+				case 1:
+					read_request();
+					break;
+			}
 		}
+next_announce:
 		send_announce_packet();
 		sleep(1);
 	}
