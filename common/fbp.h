@@ -3,8 +3,8 @@
 
 #include <inttypes.h>
 
-#define FBPD_DEFAULT_PORT 1026
-#define FBPD_PACKET_DATASIZE 4096
+#define FBP_DEFAULT_PORT 1026
+#define FBP_PACKET_DATASIZE 4096
 
 struct Announcement
 {
