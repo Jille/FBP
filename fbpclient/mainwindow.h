@@ -2,6 +2,7 @@
 #define MAINWINDOW_H
 
 #include <QMainWindow>
+#include "fbpclient.h"
 
 namespace Ui {
     class MainWindow;
@@ -18,6 +19,7 @@ protected:
 
 private:
     Ui::MainWindow *ui;
+    FbpClient      *fbp_;
 
 private slots:
     void on_pushButton_2_clicked();
