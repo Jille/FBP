@@ -5,6 +5,7 @@
 #include <libgen.h>
 #include <math.h>
 #include <netinet/in.h>
+#include <sha.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -118,6 +119,10 @@ main(int argc, char **argv) {
 	apkt.numPackets = ceil(st.st_size / FBP_PACKET_DATASIZE);
 	strncpy(apkt.filename, basename(argv[2]), sizeof(apkt.filename));
 	apkt.filename[sizeof(apkt.filename)] = 0;
+
+	char hash[41];
+	SHA1_File(argv[1], hash);
+	strncpy(apkt.checksum, hash, 40);
 
 	BM_INIT(bitmask, apkt.numPackets);
 
