@@ -22,7 +22,15 @@ struct Announcement
   char checksum[32];    // complete SHA1 checksum of the file
 } __attribute__((__packed__));
 
-struct DataPacket {
+struct RequestPacket
+{
+  char fileid;          // ID of the file (must be > 0)
+  pkt_count offset;     // first packet we want to receive
+  pkt_count num;        // number of packets we want to receive
+} __attribute__((__packed__));
+
+struct DataPacket
+{
   char fileid;          // ID of the file (must be > 0)
   char unused1;         // unused
   char unused2;         // unused
