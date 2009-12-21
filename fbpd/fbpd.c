@@ -1,3 +1,4 @@
+#include <err.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
@@ -9,19 +10,18 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/select.h>
+#include <arpa/inet.h>
 #include <netinet/in.h>
 #include "fbp.h"
+#include "bitmask.h"
 
 int sfd, ffd;
 pkt_count offset;
+unsigned char fileid;
 struct sockaddr_in addr;
 socklen_t addrlen;
 struct Announcement apkt;
-int *bitmask;
-
-#define BM_SET(m, n) m[n/sizeof(int)] |= (1 << (n % sizeof(int)))
-#define BM_CLR(m, n) m[n/sizeof(int)] &= ~(1 << (n % sizeof(int)))
-#define BM_ISSET(m, n) (m[n/sizeof(int)] & (1 << (n % sizeof(int))) != 0)
+BM_DEFINE(bitmask);
 
 void
 send_announce_packet() {
@@ -34,7 +34,7 @@ void
 read_request() {
 	char buf[128];
 	ssize_t len = recv(sfd, buf, sizeof(buf), 0);
-	// XXX
+	len++; // XXX
 }
 
 void
@@ -42,6 +42,30 @@ transfer_packet() {
 	pkt_count n = offset;
 	while(!BM_ISSET(bitmask, n)) {
 		n = (n+1) % apkt.numPackets;
+		if(n == offset) {
+			apkt.status = FBP_STATUS_WAITING;
+			return;
+		}
+	}
+
+	struct DataPacket pkt;
+	ssize_t len;
+	pkt.fileid = fileid;
+	pkt.offset = n;
+	// pkt.checksum XXX
+	if(n != offset) {
+		if(lseek(ffd, n*FBP_PACKET_DATASIZE, SEEK_SET) == -1) {
+			err(1, "lseek");
+		}
+	}
+	if((len = read(ffd, pkt.data, FBP_PACKET_DATASIZE)) == -1) {
+		err(1, "read");
+	}
+	BM_CLR(bitmask, n);
+	offset = n;
+
+	if(sendto(sfd, &pkt, sizeof(pkt) + FBP_PACKET_DATASIZE - len, 0, (struct sockaddr *)&addr, addrlen) == -1) {
+		err(1, "sendto");
 	}
 }
 
@@ -50,6 +74,12 @@ main(int argc, char **argv) {
 	struct stat st;
 	if(argc != 3) {
 		fprintf(stderr, "Usage: %s <fid> <file>\n", argv[0]);
+		return 1;
+	}
+
+	fileid = strtol(argv[1], (char **)NULL, 10);
+	if(fileid < 1) {
+		fprintf(stderr, "%s: fid must be between 1 and 255\n", argv[0]);
 		return 1;
 	}
 
@@ -78,7 +108,7 @@ main(int argc, char **argv) {
 	strncpy(apkt.filename, basename(argv[2]), sizeof(apkt.filename));
 	apkt.filename[sizeof(apkt.filename)] = 0;
 
-	bitmask = calloc(1, apkt.numPackets / sizeof(int));
+	BM_INIT(bitmask, apkt.numPackets);
 
 	if((sfd = socket(addr.sin_family, SOCK_DGRAM, 0)) == -1) {
 		err(1, "socket");
