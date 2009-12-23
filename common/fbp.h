@@ -19,7 +19,7 @@ struct Announcement
   char status;          // 0=waiting, 1=transferring
   pkt_count numPackets; // 4 bytes: number of packets
   char filename[256];   // 256 bytes of filename
-  char checksum[32];    // complete SHA1 checksum of the file
+  char checksum[40];    // complete SHA1 checksum of the file
 } __attribute__((__packed__));
 
 struct RequestPacket
