@@ -11,8 +11,12 @@ MainWindow::MainWindow(QWidget *parent) :
     ui->setupUi(this);
 
     ui->downloadDir->setText( QDir::homePath() );
-    connect( ui->chooseDir, SIGNAL(  clicked() ),
-             this,          SLOT(  chooseDir() ) );
+    connect( ui->chooseDir, SIGNAL(     clicked()    ),
+             this,          SLOT(     chooseDir()    ) );
+    connect( fbp_,          SIGNAL(   fileAdded(int) ),
+             this,          SLOT(     fileAdded(int) ) );
+    connect( fbp_,          SIGNAL( fileRemoved(int) ),
+             this,          SLOT(   fileRemoved(int) ) );
 }
 
 MainWindow::~MainWindow()
@@ -37,6 +41,14 @@ void MainWindow::chooseDir()
   QString s = QFileDialog::getExistingDirectory( this,
                  "Choose a download directory", ui->downloadDir->text() );
   ui->downloadDir->setText( s );
+}
+
+void MainWindow::fileAdded( int id )
+{
+}
+
+void MainWindow::fileRemoved( int id )
+{
 }
 
 void MainWindow::on_autoDownload_toggled( bool checked )

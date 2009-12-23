@@ -5,6 +5,8 @@
 #include <QFile>
 #include <QTimer>
 #include <QDir>
+#include <QPair>
+#include <QMap>
 
 #include "../common/fbp.h"
 #include "../common/bitmask.h"
@@ -33,15 +35,18 @@ private:
    struct KnownFile {
      char    id;
      QString fileName;
+     pkt_count numPackets;
      time_t  lastAnnouncement;
      QString downloadFileName;
      BM_DEFINE(bitmask);
    };
 
    void      readAnnouncement( struct Announcement *a, int size );
+   void      readDataPacket( struct DataPacket *d, int size );
    QFile    *file_;
    QList<KnownFile> knownFiles_;
    QTimer   *knownFileClearTimer_;
+   QMap<int,QPair<QFile*,QFile*> > downloadingFiles_;
 };
 
 #endif // FBPCLIENT_H

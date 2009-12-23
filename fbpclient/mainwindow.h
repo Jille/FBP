@@ -25,6 +25,8 @@ private slots:
     void chooseDir();
     void on_pushButton_2_clicked();
     void on_autoDownload_toggled(bool checked);
+    void fileAdded(int);
+    void fileRemoved(int);
 };
 
 #endif // MAINWINDOW_H
