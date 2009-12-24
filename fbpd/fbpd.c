@@ -122,7 +122,7 @@ main(int argc, char **argv) {
 	apkt.filename[sizeof(apkt.filename)] = 0;
 
 	char hash[41];
-	SHA1_File(argv[1], hash);
+	SHAFile(argv[1], hash);
 	strncpy(apkt.checksum, hash, 40);
 
 	BM_INIT(bitmask, apkt.numPackets);
