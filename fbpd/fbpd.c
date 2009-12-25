@@ -137,6 +137,7 @@ main(int argc, char **argv) {
 	}
 
 	while(1) {
+announce:
 		send_announce_packet();
 		if(apkt.status == FBP_STATUS_WAITING) {
 			sleep(1);
@@ -157,7 +158,7 @@ main(int argc, char **argv) {
 				case -1:
 					err(1, "select");
 				case 0:
-					continue;
+					goto announce;
 				case 1:
 					read_request();
 					break;
