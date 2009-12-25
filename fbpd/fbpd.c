@@ -117,7 +117,7 @@ main(int argc, char **argv) {
 	apkt.announceVer = FBP_ANNOUNCE_VERSION;
 	apkt.fileid = fileid;
 	apkt.status = FBP_STATUS_WAITING;
-	apkt.numPackets = ceil(st.st_size / FBP_PACKET_DATASIZE);
+	apkt.numPackets = ceil(st.st_size / (double)FBP_PACKET_DATASIZE);
 	strncpy(apkt.filename, basename(argv[2]), sizeof(apkt.filename));
 	apkt.filename[sizeof(apkt.filename)] = 0;
 
