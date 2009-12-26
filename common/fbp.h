@@ -4,7 +4,7 @@
 #include <inttypes.h>
 
 #define FBP_DEFAULT_PORT        1026
-#define FBP_PACKET_DATASIZE     4096
+#define FBP_PACKET_DATASIZE     1024
 #define FBP_ANNOUNCE_VERSION    1
 #define FBP_STATUS_WAITING      0
 #define FBP_STATUS_TRANSFERRING 1
