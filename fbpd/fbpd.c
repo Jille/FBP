@@ -28,6 +28,7 @@ BM_DEFINE(bitmask);
 
 void
 send_announce_packet() {
+	printf("Announcing file %d\n", fileid);
 	if(sendto(sfd, &apkt, sizeof(apkt), 0, (struct sockaddr *)&addr, addrlen) == -1) {
 		err(1, "sendto");
 	}
@@ -54,7 +55,7 @@ transfer_packet() {
 	pkt_count n = offset;
 	while(!BM_ISSET(bitmask, n)) {
 		n = (n+1) % apkt.numPackets;
-		if(n == offset) {
+		if(n == (offset % apkt.numPackets)) {
 			apkt.status = FBP_STATUS_WAITING;
 			return;
 		}
@@ -74,9 +75,9 @@ transfer_packet() {
 		err(1, "read");
 	}
 	BM_CLR(bitmask, n);
-	offset = n;
+	offset = n + 1;
 
-	if(sendto(sfd, &pkt, sizeof(pkt) + FBP_PACKET_DATASIZE - len, 0, (struct sockaddr *)&addr, addrlen) == -1) {
+	if(sendto(sfd, &pkt, sizeof(pkt) - FBP_PACKET_DATASIZE + len, 0, (struct sockaddr *)&addr, addrlen) == -1) {
 		err(1, "sendto");
 	}
 }
@@ -108,7 +109,7 @@ main(int argc, char **argv) {
 
 	bzero(&addr, sizeof(addr));
 	addr.sin_family = AF_INET;
-	addr.sin_addr.s_addr = inet_addr("255.255.255.255");
+	addr.sin_addr.s_addr = inet_addr("127.0.0.1");
 	addr.sin_port = htons(FBP_DEFAULT_PORT);
 	addrlen = sizeof(addr);
 
@@ -122,7 +123,11 @@ main(int argc, char **argv) {
 	apkt.filename[sizeof(apkt.filename)] = 0;
 
 	char hash[41];
+#ifdef __FreeBSD__
+	SHA1_File(argv[1], hash);
+#else
 	SHAFile(argv[1], hash);
+#endif
 	strncpy(apkt.checksum, hash, 40);
 
 	BM_INIT(bitmask, apkt.numPackets);
@@ -137,32 +142,26 @@ main(int argc, char **argv) {
 	}
 
 	while(1) {
-announce:
+		fd_set fds;
+		struct timeval tmo = { 0, 0 };
+
 		send_announce_packet();
 		if(apkt.status == FBP_STATUS_WAITING) {
-			sleep(1);
+			tmo.tv_sec = 1;
 		} else {
-			time_t start, now;
-			time(&start);
-			do {
-				transfer_packet();
-				time(&now);
-			} while(start == now && apkt.status == FBP_STATUS_TRANSFERRING);
+			transfer_packet();
 		}
 
-		struct timeval tmo = { 0, 0 };
-		while(1) {
-			fd_set fds;
-			FD_SET(sfd, &fds);
-			switch(select(sfd+1, &fds, NULL, NULL, &tmo)) {
-				case -1:
-					err(1, "select");
-				case 0:
-					goto announce;
-				case 1:
-					read_request();
-					break;
-			}
+		FD_ZERO(&fds);
+		FD_SET(sfd, &fds);
+		switch(select(sfd+1, &fds, NULL, NULL, &tmo)) {
+			case -1:
+				err(1, "select");
+			case 0:
+				continue;
+			case 1:
+				read_request();
+				break;
 		}
 	}
 
