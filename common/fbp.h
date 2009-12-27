@@ -39,4 +39,6 @@ struct DataPacket
   char data[FBP_PACKET_DATASIZE]; // the actual data
 } __attribute__((__packed__));
 
+void sha1_file(char *, int);
+
 #endif // FBP_GLOBAL_H

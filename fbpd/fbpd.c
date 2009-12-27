@@ -5,7 +5,6 @@
 #include <libgen.h>
 #include <math.h>
 #include <netinet/in.h>
-#include <sha.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -122,13 +121,7 @@ main(int argc, char **argv) {
 	strncpy(apkt.filename, basename(argv[2]), sizeof(apkt.filename));
 	apkt.filename[sizeof(apkt.filename)] = 0;
 
-	char hash[41];
-#ifdef __FreeBSD__
-	SHA1_File(argv[1], hash);
-#else
-	SHAFile(argv[1], hash);
-#endif
-	strncpy(apkt.checksum, hash, 40);
+	sha1_file(apkt.checksum, ffd);
 
 	BM_INIT(bitmask, apkt.numPackets);
 
