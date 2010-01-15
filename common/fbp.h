@@ -8,6 +8,7 @@
 #define FBP_ANNOUNCE_VERSION    1
 #define FBP_STATUS_WAITING      0
 #define FBP_STATUS_TRANSFERRING 1
+#define FBP_REQUESTS_PER_PACKET 30
 
 typedef int32_t pkt_count;
 
@@ -30,7 +31,7 @@ struct _requestData {
 struct RequestPacket
 {
   unsigned char fileid;          // ID of the file (must be > 0)
-	struct _requestData requests[30];
+	struct _requestData requests[FBP_REQUESTS_PER_PACKET];
 } __attribute__((__packed__));
 
 struct DataPacket
