@@ -1,6 +1,7 @@
 #include <arpa/inet.h>
 #include <assert.h>
 #include <err.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <libgen.h>
 #include <math.h>
@@ -23,14 +24,31 @@ unsigned char fileid;
 struct sockaddr_in addr;
 socklen_t addrlen;
 struct Announcement apkt;
+struct timeval packetInterval = {0, 0};
 BM_DEFINE(bitmask);
+
+ssize_t
+fbp_sendto(const void *buf, size_t len) {
+	ssize_t res;
+	int errors = 0;
+	while((res = sendto(sfd, buf, len, 0, (struct sockaddr *)&addr, addrlen)) == -1) {
+		if(errno == ENOBUFS && errors < 100) {
+			usleep(10000);
+			if(!errors) {
+				packetInterval.tv_usec += 5000;
+				errors++;
+			}
+		} else {
+			err(1, "sendto");
+		}
+	}
+	return res;
+}
 
 void
 send_announce_packet() {
 	printf("Announcing file %d\n", fileid);
-	if(sendto(sfd, &apkt, sizeof(apkt), 0, (struct sockaddr *)&addr, addrlen) == -1) {
-		err(1, "sendto");
-	}
+	fbp_sendto(&apkt, sizeof(apkt));
 }
 
 void
@@ -76,9 +94,7 @@ transfer_packet() {
 	BM_CLR(bitmask, n);
 	offset = n + 1;
 
-	if(sendto(sfd, &pkt, sizeof(pkt) - FBP_PACKET_DATASIZE + len, 0, (struct sockaddr *)&addr, addrlen) == -1) {
-		err(1, "sendto");
-	}
+	fbp_sendto(&pkt, sizeof(pkt));
 }
 
 int
@@ -141,7 +157,9 @@ main(int argc, char **argv) {
 		send_announce_packet();
 		if(apkt.status == FBP_STATUS_WAITING) {
 			tmo.tv_sec = 1;
+			tmo.tv_usec = 0;
 		} else {
+			tmo = packetInterval;
 			transfer_packet();
 		}
 
