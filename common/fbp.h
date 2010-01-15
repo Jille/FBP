@@ -30,7 +30,7 @@ struct _requestData {
 struct RequestPacket
 {
   unsigned char fileid;          // ID of the file (must be > 0)
-	struct _requestData requests[0];
+	struct _requestData requests[30];
 } __attribute__((__packed__));
 
 struct DataPacket
