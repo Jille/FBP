@@ -24,8 +24,13 @@ unsigned char fileid;
 struct sockaddr_in addr;
 socklen_t addrlen;
 struct Announcement apkt;
-struct timeval packetInterval = {0, 0};
 BM_DEFINE(bitmask);
+
+// Rate limiting
+struct timeval packetInterval = {0, 0};
+int announce_rate = 1;
+
+#define	UPDATE_ANNOUNCE_RATE()	do { announce_rate = 10000 /*1000000 / packetInterval.tv_usec */; printf("New announce rate: %d\n", announce_rate); } while(0)
 
 ssize_t
 fbp_sendto(const void *buf, size_t len) {
@@ -35,8 +40,13 @@ fbp_sendto(const void *buf, size_t len) {
 		if(errno == ENOBUFS && errors < 100) {
 			usleep(10000);
 			if(!errors) {
-				packetInterval.tv_usec += 5000;
+				packetInterval.tv_usec += 1000;
+				if(packetInterval.tv_usec > 1000000) {
+					packetInterval.tv_usec = 1000000;
+				}
+				UPDATE_ANNOUNCE_RATE();
 				errors++;
+				puts("Error while sending; slowing down");
 			}
 		} else {
 			err(1, "sendto");
@@ -54,27 +64,36 @@ send_announce_packet() {
 void
 read_request() {
 	struct RequestPacket rpkt;
+	int i;
 	if(recv(sfd, &rpkt, sizeof(rpkt), 0) == -1) {
 		err(1, "recv");
 	}
-	if(rpkt.offset > apkt.numPackets || rpkt.offset + rpkt.num > apkt.numPackets) {
-		return;
-	}
-	pkt_count n;
-	for(n = rpkt.offset; rpkt.offset + rpkt.num > n; n++) {
-		BM_SET(bitmask, n);
+	for(i=0; 30 > i; i++) {
+		if(rpkt.requests[i].offset > apkt.numPackets || rpkt.requests[i].offset + rpkt.requests[i].num > apkt.numPackets) {
+			printf("Received invalid request range for fileid %d\n", rpkt.fileid);
+			return;
+		}
+		pkt_count n;
+		for(n = rpkt.requests[i].offset; rpkt.requests[i].offset + rpkt.requests[i].num > n; n++) {
+			BM_SET(bitmask, n);
+		}
 	}
 	apkt.status = FBP_STATUS_TRANSFERRING;
+	puts("Going into transfermode");
 }
 
 void
 transfer_packet() {
-	pkt_count n = offset;
-	while(!BM_ISSET(bitmask, n)) {
-		n = (n+1) % apkt.numPackets;
-		if(n == (offset % apkt.numPackets)) {
-			apkt.status = FBP_STATUS_WAITING;
-			return;
+	pkt_count n = offset % apkt.numPackets;
+	// printf("Attempting to transfer packet; my previous was %d; and there are %d packets\n", n, apkt.numPackets);
+	if(apkt.numPackets != 1) {
+		while(!BM_ISSET(bitmask, n)) {
+			n = (n+1) % apkt.numPackets;
+			if(n == (offset % apkt.numPackets)) {
+				apkt.status = FBP_STATUS_WAITING;
+				puts("Going into idlemode");
+				return;
+			}
 		}
 	}
 
@@ -84,17 +103,22 @@ transfer_packet() {
 	pkt.offset = n;
 	// pkt.checksum XXX
 	if(n != offset) {
+		printf("I was at the wrong offset (%d instead of %d)\n", offset, n);
 		if(lseek(ffd, n*FBP_PACKET_DATASIZE, SEEK_SET) == -1) {
 			err(1, "lseek");
 		}
 	}
+	// printf("Yo, I'm going to read offset %d. So, I'm at %ld now.\n", n, (long)lseek(ffd, 0, SEEK_CUR));
 	if((len = read(ffd, pkt.data, FBP_PACKET_DATASIZE)) == -1) {
 		err(1, "read");
 	}
+	assert(len > 0 && (len == FBP_PACKET_DATASIZE || n == apkt.numPackets - 1));
 	BM_CLR(bitmask, n);
 	offset = n + 1;
 
-	fbp_sendto(&pkt, sizeof(pkt));
+	// printf("Sending offset %d with data: %.*s\n", pkt.offset, len, pkt.data);
+
+	fbp_sendto(&pkt, sizeof(pkt) - FBP_PACKET_DATASIZE + len);
 }
 
 int
@@ -120,11 +144,9 @@ main(int argc, char **argv) {
 		err(1, "fstat(%s)", argv[2]);
 	}
 
-	offset = 0;
-
 	bzero(&addr, sizeof(addr));
 	addr.sin_family = AF_INET;
-	addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+	addr.sin_addr.s_addr = inet_addr("192.168.0.255");
 	addr.sin_port = htons(FBP_DEFAULT_PORT);
 	addrlen = sizeof(addr);
 
@@ -138,8 +160,14 @@ main(int argc, char **argv) {
 	apkt.filename[sizeof(apkt.filename)] = 0;
 
 	sha1_file(apkt.checksum, ffd);
+	offset = apkt.numPackets;
 
 	BM_INIT(bitmask, apkt.numPackets);
+
+/*
+	apkt.status = FBP_STATUS_TRANSFERRING;
+	BM_SET(bitmask, 0);
+*/
 
 	if((sfd = socket(addr.sin_family, SOCK_DGRAM, 0)) == -1) {
 		err(1, "socket");
@@ -150,15 +178,21 @@ main(int argc, char **argv) {
 		err(1, "setsockopt");
 	}
 
+	int i = 0;
+	UPDATE_ANNOUNCE_RATE();
 	while(1) {
 		fd_set fds;
 		struct timeval tmo = { 0, 0 };
 
-		send_announce_packet();
 		if(apkt.status == FBP_STATUS_WAITING) {
+			send_announce_packet();
 			tmo.tv_sec = 1;
 			tmo.tv_usec = 0;
 		} else {
+			if(++i >= announce_rate) {
+				send_announce_packet();
+				i = 0;
+			}
 			tmo = packetInterval;
 			transfer_packet();
 		}
