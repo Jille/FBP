@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <arpa/inet.h>
 #include <assert.h>
 #include <err.h>
@@ -5,7 +6,6 @@
 #include <libgen.h>
 #include <math.h>
 #include <netinet/in.h>
-#include <sha.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -77,29 +77,30 @@ handle_announcement(struct Announcement *apkt, ssize_t pktlen, struct sockaddr_i
 
 	pkt_count n;
 	struct RequestPacket rpkt;
+	bzero(&rpkt, sizeof(rpkt));
 	int done = 1;
 
 	rpkt.fileid = t->fileid;
-	rpkt.offset = 0;
-	rpkt.num = 0;
+	rpkt.requests[0].offset = 0;
+	rpkt.requests[0].num = 0;
 	for(n = 0; apkt->numPackets > n; n++) {
 		if(!BM_ISSET(t->bitmask, n)) {
-			if(rpkt.num == 0) {
-				rpkt.offset = n;
+			if(rpkt.requests[0].num == 0) {
+				rpkt.requests[0].offset = n;
 			}
-			rpkt.num++;
-		} else if(rpkt.num > 0) {
-			printf("handle_announcement(): [%d] Requesting %d packets from offset %d\n", apkt->fileid, rpkt.num, rpkt.offset);
+			rpkt.requests[0].num++;
+		} else if(rpkt.requests[0].num > 0) {
+			printf("handle_announcement(): [%d] Requesting %d packets from offset %d\n", apkt->fileid, rpkt.requests[0].num, rpkt.requests[0].offset);
 			done = 0;
 			if(sendto(sfd, &rpkt, sizeof(rpkt), 0, (struct sockaddr *)raddr, raddrlen) == -1) {
 				err(1, "sendto");
 			}
-			rpkt.offset = 0;
-			rpkt.num = 0;
+			rpkt.requests[0].offset = 0;
+			rpkt.requests[0].num = 0;
 		}
 	}
-	if(rpkt.num > 0) {
-		printf("handle_announcement(): [%d] Requesting %d packets from offset %d\n", apkt->fileid, rpkt.num, rpkt.offset);
+	if(rpkt.requests[0].num > 0) {
+		printf("handle_announcement(): [%d] Requesting %d packets from offset %d\n", apkt->fileid, rpkt.requests[0].num, rpkt.requests[0].offset);
 		done = 0;
 		if(sendto(sfd, &rpkt, sizeof(rpkt), 0, (struct sockaddr *)raddr, raddrlen) == -1) {
 			err(1, "sendto");
