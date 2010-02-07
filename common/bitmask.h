@@ -1,4 +1,4 @@
-typedef int bm_datatype;
+typedef unsigned int bm_datatype;
 typedef int bm_bitid;
 
 #define BM_DEFINE(m)        bm_datatype *m
