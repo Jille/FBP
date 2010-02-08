@@ -18,6 +18,8 @@
 #include "fbp.h"
 #include "bitmask.h"
 
+#define FBP_CON_ADDR "192.168.0.255"
+
 int sfd, ffd;
 pkt_count offset;
 unsigned char fileid;
@@ -85,7 +87,6 @@ read_request() {
 void
 transfer_packet() {
 	pkt_count n = offset % apkt.numPackets;
-	// printf("Attempting to transfer packet; my previous was %d; and there are %d packets\n", n, apkt.numPackets);
 	if(apkt.numPackets != 1) {
 		while(!BM_ISSET(bitmask, n)) {
 			n = (n+1) % apkt.numPackets;
@@ -103,7 +104,6 @@ transfer_packet() {
 	pkt.offset = n;
 	// pkt.checksum XXX
 	if(n != offset) {
-		printf("I was at the wrong offset (%d instead of %d)\n", offset, n);
 		if(lseek(ffd, n*FBP_PACKET_DATASIZE, SEEK_SET) == -1) {
 			err(1, "lseek");
 		}
@@ -146,7 +146,7 @@ main(int argc, char **argv) {
 
 	bzero(&addr, sizeof(addr));
 	addr.sin_family = AF_INET;
-	addr.sin_addr.s_addr = inet_addr("192.168.0.255");
+	addr.sin_addr.s_addr = inet_addr(FBP_CON_ADDR);
 	addr.sin_port = htons(FBP_DEFAULT_PORT);
 	addrlen = sizeof(addr);
 
