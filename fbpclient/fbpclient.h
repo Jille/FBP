@@ -22,13 +22,15 @@ public:
     quint16  port() const;
     void     setPort( quint16 port );
     bool     isDownloadingFile( int id ) const;
+    const QString &fileNameForFile( int id ) const;
 
 signals:
   void       fileAdded( int id, const QString &fn, int startProgress );
   void       fileRemoved( int id );
   void       downloadStarted( int id );
-  void       downloadFinished( int id );
+  void       downloadFinished( int id, const QString &fn );
   void       fileProgressChanged( int id, int progress );
+  void       fileOverwriteWarning( int id, const QString &fn );
 
 public slots:
   void       startDownload( int id, const QDir &directory );
@@ -38,6 +40,7 @@ private slots:
    void      clearKnownFiles();
    void      sendRequest( int id );
    void      flushBitmask( int id );
+   void      finishDownload( int id );
 
 private:
 
@@ -46,7 +49,6 @@ private:
      QString fileName;
      pkt_count numPackets;
      time_t  lastAnnouncement;
-     QString downloadFileName;
      QHostAddress server;
      quint16      serverPort;
      BM_DEFINE(bitmask);

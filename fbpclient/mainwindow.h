@@ -23,13 +23,17 @@ private:
     int rowForFileId( int ) const;
 
 private slots:
+    void on_pushButton_clicked();
     void chooseDir();
     void on_pushButton_2_clicked();
-    void on_autoDownload_toggled(bool checked);
     void fileAdded(int, const QString &fn, int startProgress);
     void fileRemoved(int);
     void fileProgressChanged( int, int );
+    void fileOverwriteWarning(int, const QString &fn );
+    void downloadFinished(int, const QString &fileName);
     void addRow( int id, const QString &fn, int progress );
+    bool checkDirWritable( const QDir &d );
+    void startDownload( int );
 };
 
 #endif // MAINWINDOW_H

@@ -1,13 +1,16 @@
 #include "mainwindow.h"
+#include "fbpclient.h"
 #include "ui_mainwindow.h"
 
 #include <QtGui/QFileDialog>
 #include <QtGui/QProgressBar>
+#include <QtGui/QMessageBox>
+#include <QtCore/QTemporaryFile>
 
 MainWindow::MainWindow(QWidget *parent) :
     QMainWindow(parent),
     ui(new Ui::MainWindow),
-    fbp_(new FbpClient()),
+    fbp_(new FbpClient())
 {
     ui->setupUi(this);
 
@@ -24,6 +27,10 @@ MainWindow::MainWindow(QWidget *parent) :
              this,          SLOT(           fileRemoved(int)             ) );
     connect( fbp_,          SIGNAL( fileProgressChanged(int,int)         ),
              this,          SLOT(   fileProgressChanged(int,int)         ) );
+    connect( fbp_,          SIGNAL(fileOverwriteWarning(int, QString)    ),
+             this,          SLOT(  fileOverwriteWarning(int, QString)    ) );
+    connect( fbp_,          SIGNAL(    downloadFinished(int, QString)    ),
+             this,          SLOT(      downloadFinished(int, QString)    ) );
 }
 
 MainWindow::~MainWindow()
@@ -80,9 +87,56 @@ void MainWindow::chooseDir()
   ui->downloadDir->setText( s );
 }
 
+bool MainWindow::checkDirWritable( const QDir &d )
+{
+  QMessageBox *mb = new QMessageBox;
+  if( !d.exists() )
+  {
+    mb->setText( "The directory you have chosen doesn't exist.");
+    mb->show();
+    return false;
+  }
+
+  QTemporaryFile tf( d.absolutePath() + d.separator() + "fbp_test_XXXXXX" );
+  if( !tf.open() )
+  {
+    mb->setText( "The directory you have chosen does not seem to be writable.");
+    mb->show();
+    return false;
+  }
+
+  tf.remove();
+  return true;
+}
+
+void MainWindow::downloadFinished( int fileId, const QString &fileName )
+{
+  Q_ASSERT( fileName == fbp_->fileNameForFile( fileId ) );
+
+  // The bitmask has been removed and the file has been downloaded. Let's show
+  // a dialog!
+  QMessageBox *mb = new QMessageBox;
+  mb->setText( "Download finished!\n" + fileName );
+  mb->show();
+}
+
 void MainWindow::fileAdded( int fileId, const QString &fileName, int startProgress )
 {
   addRow( fileId, fileName, startProgress );
+
+  if( ui->autoDownload->isChecked() )
+  {
+    // Automatically start the download
+    startDownload( fileId );
+  }
+}
+
+void MainWindow::fileOverwriteWarning(int, const QString &fn)
+{
+  QMessageBox *mb = new QMessageBox;
+  mb->setText( "Could not save file: a file with that name already exists. The file was saved as " + fn);
+  mb->show();
+  return;
 }
 
 void MainWindow::fileProgressChanged( int fileId, int progress )
@@ -104,12 +158,16 @@ void MainWindow::fileRemoved( int fileId )
   Q_UNUSED( fileId );
 }
 
-void MainWindow::on_autoDownload_toggled( bool checked )
+void MainWindow::on_pushButton_clicked()
 {
-  if( checked )
-    ui->autoBuffer->setChecked( true );
+  int row = ui->files->currentRow();
+  if( row < 0 )
+    return;
 
-  ui->autoBuffer->setEnabled( !checked );
+  int fileId = ui->files->item( row, 0 )->text().toInt();
+  Q_ASSERT( rowForFileId( fileId ) == row );
+
+  startDownload( fileId );
 }
 
 void MainWindow::on_pushButton_2_clicked()
@@ -127,4 +185,14 @@ int MainWindow::rowForFileId( int fileId ) const
 
   // not found
   return -1;
+}
+
+void MainWindow::startDownload( int fileId )
+{
+  if( fbp_->isDownloadingFile( fileId ) )
+    return;
+
+  QDir d( ui->downloadDir->text() );
+  if( checkDirWritable( d ) )
+    fbp_->startDownload( fileId, d );
 }

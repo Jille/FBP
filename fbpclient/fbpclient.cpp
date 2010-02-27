@@ -47,6 +47,50 @@ void FbpClient::clearKnownFiles()
   }
 }
 
+void FbpClient::finishDownload( int id )
+{
+  if( !downloadingFiles_.contains( id ) )
+    return;
+
+  int index = -1;
+  for( int i = 0; i < knownFiles_.size(); ++i )
+    if( knownFiles_[i]->id == id ) index = i;
+  if( index == -1 ) return;
+
+  // Don't download this file anymore, it's finished
+  QFile *newFile = downloadingFiles_[id].first;
+  QFile *bitmask = downloadingFiles_[id].second;
+  downloadingFiles_.remove( id );
+
+  bitmask->remove();
+  newFile->flush();
+  if( QFile::exists( knownFiles_[index]->fileName ) )
+  {
+    QString fileName = knownFiles_[index]->fileName + ".data";
+    emit fileOverwriteWarning( id, fileName );
+    knownFiles_[index]->fileName = fileName;
+  }
+  else
+  {
+    newFile->rename( knownFiles_[index]->fileName );
+  }
+  newFile->close();
+  delete newFile; delete bitmask;
+
+  emit fileProgressChanged( id, 100 );
+  emit downloadFinished( id, knownFiles_[index]->fileName );
+}
+
+const QString &FbpClient::fileNameForFile( int id ) const
+{
+  int index = -1;
+  for( int i = 0; i < knownFiles_.size(); ++i )
+    if( knownFiles_[i]->id == id ) index = i;
+  Q_ASSERT( index != -1 );
+
+  return knownFiles_[index]->fileName;
+}
+
 void FbpClient::flushBitmask( int id )
 {
   int index = -1;
@@ -95,7 +139,6 @@ int FbpClient::progressFromBitmask( const struct KnownFile *k ) const
 
   int percentage = ( packetsDone / numPackets ) * 100;
 
-  qDebug() << "Progress from bitmask: " << packetsDone << " of " << numPackets << "=> percentage is " << percentage;
   return percentage;
 }
 
@@ -128,10 +171,7 @@ void FbpClient::readAnnouncement( struct Announcement *a, int size,
     knownFiles_.append( k );
     index         = knownFiles_.size()-1;
 
-    qDebug() << "New file added with ID" << (int)id << "filename" << k->fileName;
     emit fileAdded( id, k->fileName, 0 );
-    // temporary: start downloading the file right away
-    startDownload( id, QDir("/tmp") );
   }
 
   // Got an announcement for an existing file
@@ -261,18 +301,12 @@ void FbpClient::readDataPacket( struct DataPacket *d, quint32 size )
     }
 
     // Got it! Set it in the bitmask, so we don't download it twice
-    qDebug() << "Set in bitmask: " << offset;
-    if( BM_ISSET( knownFiles_[index]->bitmask, offset ) )
-      qDebug() << "Was already set!";
     BM_SET( knownFiles_[index]->bitmask, offset );
 
     Q_ASSERT( BM_ISSET( knownFiles_[index]->bitmask, offset ) );
 
     // Flush bitmask file to disk
-    qDebug() << "Flushing bitmask to disk...";
     flushBitmask( id );
-
-    qDebug() << "Succesfully downloaded packet " << offset;
 
     emit fileProgressChanged( id, progressFromBitmask( knownFiles_[index] ) );
     return;
@@ -295,8 +329,6 @@ void FbpClient::sendRequest( int id )
     return;
   }
 
-  qDebug() << "Determined index is " << index;
-
   // First, we should determine what parts of the file we miss
   long offset  = -1;
   int  numPackets = 0;
@@ -304,7 +336,6 @@ void FbpClient::sendRequest( int id )
   // This is a very inefficient method, we should use bitwise comparison
   // of a full byte at once until an unset bit is found. Stuff for later.
   pkt_count totalNum = knownFiles_[index]->numPackets;
-  qDebug() << "Total number of packets is " << totalNum;
 
   struct RequestPacket *rp = new struct RequestPacket;
   rp->fileid = id;
@@ -318,10 +349,6 @@ void FbpClient::sendRequest( int id )
       // range we don't have, so send the request here
       if( offset != -1 )
       {
-        qDebug() << "Requesting broadcast for file ID " << id << " of " << numPackets
-                 << "packets starting with packet " << offset << "(of " << totalNum
-                 << "packets total)";
-
         rp->requests[requestNum].offset = offset;
         rp->requests[requestNum].num    = numPackets;
         requestNum++;
@@ -352,9 +379,7 @@ void FbpClient::sendRequest( int id )
   // If we have all packages, no request needs to be sent
   if( requestNum == 0 )
   {
-    qDebug() << "We have all packets! Download is finished!";
-    emit fileProgressChanged( id, 100 );
-    emit downloadFinished( id );
+    finishDownload( id );
     delete rp;
     return;
   }
@@ -373,7 +398,6 @@ void FbpClient::sendRequest( int id )
 
 void FbpClient::setPort( quint16 port )
 {
-  qDebug() << "Setting port to " << port;
   setLocalPort( port );
   setPeerPort( port );
   bind( port, QUdpSocket::ShareAddress );
@@ -396,8 +420,9 @@ void FbpClient::startDownload( int id, const QDir &downloadDir )
   }
 
   // We will start downloading to downloadDir
-  QFile *dataFile    = new QFile( downloadDir.filePath( knownFiles_[index]->fileName + ".data"  ) );
-  QFile *bitmaskFile = new QFile( downloadDir.filePath( knownFiles_[index]->fileName + ".bmask" ) );
+  knownFiles_[index]->fileName = downloadDir.filePath( knownFiles_[index]->fileName );
+  QFile *dataFile    = new QFile( knownFiles_[index]->fileName + ".data"  );
+  QFile *bitmaskFile = new QFile( knownFiles_[index]->fileName + ".bmask" );
 
   dataFile->open( QIODevice::ReadWrite );
   bitmaskFile->open( QIODevice::ReadWrite );
@@ -419,7 +444,6 @@ void FbpClient::startDownload( int id, const QDir &downloadDir )
   // bitmask files are incorrect and truncate them
   pkt_count numPackets = knownFiles_[index]->numPackets;
   int bitmaskSize = BM_SIZE(numPackets);
-  qDebug() << "Bitmask size is " << bitmaskSize << " num packets is " << numPackets;
   if( bitmaskFile->size() != bitmaskSize
    && bitmaskFile->size() != 0 )
   {
@@ -434,7 +458,6 @@ void FbpClient::startDownload( int id, const QDir &downloadDir )
   }
 
   // Allocate bitmask
-  qDebug() << "Initializing bitmask for " << numPackets << "packets!";
   BM_INIT( knownFiles_[index]->bitmask, numPackets );
 
   // Read the bitmask from the file if it's not empty (size should be correct)
@@ -455,7 +478,6 @@ void FbpClient::startDownload( int id, const QDir &downloadDir )
   // (after the next line, any packets not in bitmask that come in with given
   // id will be writen to the data file, their bitmask updated, and written
   // to bitmaskFile.
-  qDebug() << "Starting download for file ID " << id;
   emit downloadStarted( id );
   downloadingFiles_.insert( id, qMakePair( dataFile, bitmaskFile ) );
   flushBitmask( id );
