@@ -20,19 +20,29 @@
 
 #define FBP_CON_ADDR "192.168.0.255"
 
+#ifndef MAX
+#define	MAX(x, y) (((x) > (y)) ? (x) : (y))
+#endif
+#ifndef MIN
+#define	MIN(x, y) (((x) < (y)) ? (x) : (y))
+#endif
+
 int sfd, ffd;
 pkt_count offset;
 unsigned char fileid;
 struct sockaddr_in addr;
 socklen_t addrlen;
 struct Announcement apkt;
+#ifdef VERBOSE
+int packets_queued = 0;
+#endif
 BM_DEFINE(bitmask);
 
 // Rate limiting
 struct timeval packetInterval = {0, 0};
 int announce_rate = 1;
 
-#define	UPDATE_ANNOUNCE_RATE()	do { announce_rate = 10000 /*1000000 / packetInterval.tv_usec */; printf("New announce rate: %d\n", announce_rate); } while(0)
+#define	UPDATE_ANNOUNCE_RATE()	do { announce_rate = (100000 / MAX(1, packetInterval.tv_usec)) / 3; printf("New announce rate: %d\n", announce_rate); } while(0)
 
 ssize_t
 fbp_sendto(const void *buf, size_t len) {
@@ -42,13 +52,15 @@ fbp_sendto(const void *buf, size_t len) {
 		if(errno == ENOBUFS && errors < 100) {
 			usleep(10000);
 			if(!errors) {
-				packetInterval.tv_usec += 1000;
+				packetInterval.tv_usec += 100;
 				if(packetInterval.tv_usec > 1000000) {
 					packetInterval.tv_usec = 1000000;
 				}
+				puts("Error while sending; slowing down");
 				UPDATE_ANNOUNCE_RATE();
 				errors++;
-				puts("Error while sending; slowing down");
+			} else {
+				puts("Error while sending");
 			}
 		} else {
 			err(1, "sendto");
@@ -77,6 +89,11 @@ read_request() {
 		}
 		pkt_count n;
 		for(n = rpkt.requests[i].offset; rpkt.requests[i].offset + rpkt.requests[i].num > n; n++) {
+#ifdef VERBOSE
+			if(!BM_ISSET(bitmask, n)) {
+				packets_queued++;
+			}
+#endif
 			BM_SET(bitmask, n);
 		}
 	}
@@ -93,6 +110,9 @@ transfer_packet() {
 			if(n == (offset % apkt.numPackets)) {
 				apkt.status = FBP_STATUS_WAITING;
 				puts("Going into idlemode");
+#ifdef VERBOSE
+				assert(packets_queued == 0);
+#endif
 				return;
 			}
 		}
@@ -113,6 +133,9 @@ transfer_packet() {
 		err(1, "read");
 	}
 	assert(len > 0 && (len == FBP_PACKET_DATASIZE || n == apkt.numPackets - 1));
+#ifdef VERBOSE
+	packets_queued--;
+#endif
 	BM_CLR(bitmask, n);
 	offset = n + 1;
 
@@ -167,6 +190,9 @@ main(int argc, char **argv) {
 /*
 	apkt.status = FBP_STATUS_TRANSFERRING;
 	BM_SET(bitmask, 0);
+#ifdef VERBOSE
+	packets_queued++;
+#endif
 */
 
 	if((sfd = socket(addr.sin_family, SOCK_DGRAM, 0)) == -1) {
@@ -185,16 +211,28 @@ main(int argc, char **argv) {
 		struct timeval tmo = { 0, 0 };
 
 		if(apkt.status == FBP_STATUS_WAITING) {
+#ifdef VERBOSE
+			printf(" idle %d                       \r", (int)time(NULL));
+			fflush(stdout);
+#endif
 			send_announce_packet();
 			tmo.tv_sec = 1;
 			tmo.tv_usec = 0;
 		} else {
+#ifdef VERBOSE
+			printf(" %d/%d     %d               \r", packets_queued, apkt.numPackets, (int)time(NULL));
+			fflush(stdout);
+#endif
 			if(++i >= announce_rate) {
 				send_announce_packet();
 				i = 0;
 			}
-			tmo = packetInterval;
 			transfer_packet();
+			tmo = packetInterval;
+			if((i % 50) > 0) {
+				usleep(tmo.tv_usec);
+				continue;
+			}
 		}
 
 		FD_ZERO(&fds);

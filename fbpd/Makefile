@@ -1,4 +1,4 @@
-CFLAGS=-g -I../common -I/sw/include/libmd -Wall
+CFLAGS=-g -I../common -I/sw/include/libmd -Wall -DVERBOSE
 LDFLAGS=-L/sw/lib -lm -lmd
 
 fbpd: fbpd.c ../common/fbp.h ../common/sha1.o Makefile
