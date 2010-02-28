@@ -1,5 +1,6 @@
 #include "fbpclient.h"
 #include "../common/fbp.h"
+#include <QDateTime>
 
 FbpClient::FbpClient(quint16 port, QObject *parent)
 : QUdpSocket(parent)
@@ -28,12 +29,11 @@ FbpClient::~FbpClient()
 
 void FbpClient::clearKnownFiles()
 {
-  time_t t = time(NULL);
-
   for( int i = 0; i < knownFiles_.size(); ++i )
   {
     // if the last announcement was more than 5 seconds ago...
-    if( knownFiles_[i]->lastAnnouncement < t - 5)
+    if( QDateTime::fromTime_t( knownFiles_[i]->lastAnnouncement )
+        < QDateTime::currentDateTime().addSecs(- 5) )
     {
       qDebug() << "File with ID" << (int)knownFiles_[i]->id << "is expired, "
                   "removing it from the list.";
@@ -175,7 +175,7 @@ void FbpClient::readAnnouncement( struct Announcement *a, int size,
   }
 
   // Got an announcement for an existing file
-  knownFiles_[index]->lastAnnouncement = time(NULL);
+  knownFiles_[index]->lastAnnouncement = QDateTime::currentDateTime().toTime_t();
 
   if( knownFiles_[index]->numPackets != a->numPackets )
   {
