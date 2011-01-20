@@ -13,6 +13,7 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/time.h>
 #include <time.h>
 #include <unistd.h>
 #include "fbp.h"
@@ -29,6 +30,7 @@ struct transfer {
 	unsigned char fileid;
 	int fd;
 	pkt_count offset;
+	struct timeval start;
 	BM_DEFINE(bitmask);
 };
 
@@ -54,6 +56,7 @@ start_transfer(struct Announcement *apkt, struct sockaddr_in *raddr, socklen_t r
 	t->fileid = apkt->fileid;
 	t->offset = 0;
 	BM_INIT(t->bitmask, apkt->numPackets);
+	gettimeofday(&t->start, NULL);
 }
 
 void
@@ -81,26 +84,37 @@ handle_announcement(struct Announcement *apkt, ssize_t pktlen, struct sockaddr_i
 	int done = 1;
 
 	rpkt.fileid = t->fileid;
-	rpkt.requests[0].offset = 0;
-	rpkt.requests[0].num = 0;
+	int rid = 0;
+	rpkt.requests[rid].offset = 0;
+	rpkt.requests[rid].num = 0;
 	for(n = 0; apkt->numPackets > n; n++) {
 		if(!BM_ISSET(t->bitmask, n)) {
-			if(rpkt.requests[0].num == 0) {
-				rpkt.requests[0].offset = n;
+			if(rpkt.requests[rid].num == 0) {
+				rpkt.requests[rid].offset = n;
 			}
-			rpkt.requests[0].num++;
-		} else if(rpkt.requests[0].num > 0) {
-			printf("handle_announcement(): [%d] Requesting %d packets from offset %d\n", apkt->fileid, rpkt.requests[0].num, rpkt.requests[0].offset);
-			done = 0;
-			if(sendto(sfd, &rpkt, sizeof(rpkt), 0, (struct sockaddr *)raddr, raddrlen) == -1) {
-				err(1, "sendto");
+			rpkt.requests[rid].num++;
+		} else if(rpkt.requests[rid].num > 0) {
+			printf("handle_announcement(): [%d] Requesting %d packets from offset %d (in rid %d)\n", apkt->fileid, rpkt.requests[rid].num, rpkt.requests[rid].offset, rid);
+			if(rid < FBP_REQUESTS_PER_PACKET - 1) {
+				rid++;
+			} else {
+				done = 0;
+				if(sendto(sfd, &rpkt, sizeof(rpkt), 0, (struct sockaddr *)raddr, raddrlen) == -1) {
+					err(1, "sendto");
+				}
+				for(rid = 0; FBP_REQUESTS_PER_PACKET > rid; rid++) {
+					rpkt.requests[rid].offset = 0;
+					rpkt.requests[rid].num = 0;
+				}
+				rid = 0;
 			}
-			rpkt.requests[0].offset = 0;
-			rpkt.requests[0].num = 0;
 		}
 	}
-	if(rpkt.requests[0].num > 0) {
-		printf("handle_announcement(): [%d] Requesting %d packets from offset %d\n", apkt->fileid, rpkt.requests[0].num, rpkt.requests[0].offset);
+	if(rpkt.requests[rid].num > 0) {
+		printf("handle_announcement(): [%d] Requesting %d packets from offset %d\n", apkt->fileid, rpkt.requests[rid].num, rpkt.requests[rid].offset);
+		rid++;
+	}
+	if(rid > 0) {
 		done = 0;
 		if(sendto(sfd, &rpkt, sizeof(rpkt), 0, (struct sockaddr *)raddr, raddrlen) == -1) {
 			err(1, "sendto");
@@ -108,7 +122,15 @@ handle_announcement(struct Announcement *apkt, ssize_t pktlen, struct sockaddr_i
 	}
 
 	if(done) {
-		printf("handle_announcement(): [%d] Ready!\n", apkt->fileid);
+		struct timeval now;
+		gettimeofday(&now, NULL);
+		now.tv_sec -= t->start.tv_sec;
+		now.tv_usec -= t->start.tv_usec;
+		if(now.tv_usec < 0) {
+			now.tv_usec += 1000000;
+			now.tv_sec++;
+		}
+		printf("handle_announcement(): [%d] Ready in %ld.%ld seconds\n", apkt->fileid, now.tv_sec, now.tv_usec);
 		close(t->fd);
 		t->fd = -1;
 	}
