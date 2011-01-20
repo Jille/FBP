@@ -38,8 +38,7 @@ struct DataPacket
 {
   unsigned char fileid;          // ID of the file (must be > 0)
   char unused1;         // unused
-  char unused2;         // unused
-  char checksum[5];     // checksum of this packet
+  unsigned short size;
   pkt_count offset;     // offset number of this packet
   char data[FBP_PACKET_DATASIZE]; // the actual data
 } __attribute__((__packed__));
