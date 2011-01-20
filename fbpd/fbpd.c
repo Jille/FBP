@@ -82,16 +82,16 @@ transmit_data_packet() {
 	ssize_t len;
 	pkt.fileid = fileid;
 	pkt.offset = n;
-	// pkt.checksum XXX
 	if(n != offset) {
 		if(lseek(ffd, n*FBP_PACKET_DATASIZE, SEEK_SET) == -1) {
 			err(1, "lseek");
 		}
 	}
-	printf("Yo, I'm going to read offset %d. So, I'm at %ld now.\n", n, (long)lseek(ffd, 0, SEEK_CUR));
+	// printf("Yo, I'm going to read offset %d. So, I'm at %ld now.\n", n, (long)lseek(ffd, 0, SEEK_CUR));
 	if((len = read(ffd, pkt.data, FBP_PACKET_DATASIZE)) == -1) {
 		err(1, "read");
 	}
+	pkt.size = len;
 	assert(len > 0);
 	assert(len == FBP_PACKET_DATASIZE || n == apkt.numPackets - 1);
 
@@ -166,7 +166,7 @@ main(int argc, char **argv) {
 	apkt.status = FBP_STATUS_WAITING;
 	apkt.numPackets = ceil(st.st_size / (double)FBP_PACKET_DATASIZE);
 	strncpy(apkt.filename, basename(argv[2]), sizeof(apkt.filename));
-	apkt.filename[sizeof(apkt.filename)] = 0;
+	apkt.filename[sizeof(apkt.filename) - 1] = 0;
 
 	sha1_file(apkt.checksum, ffd);
 	offset = apkt.numPackets;
@@ -257,7 +257,7 @@ main(int argc, char **argv) {
 					} else {
 						transmit_data_packet();
 #ifdef RATE_LIMIT
-						printf("Sent %d/%d packet this second\n", limit_pps - patsts, limit_pps);
+						// printf("Sent %d/%d packet this second\n", limit_pps - patsts, limit_pps);
 						assert(TIMEVAL_IS_ZERO(nextPacket));
 						assert(patsts > 0);
 						patsts--;
