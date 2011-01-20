@@ -13,12 +13,13 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/time.h>
 #include <time.h>
 #include <unistd.h>
 #include "fbp.h"
 #include "bitmask.h"
 
-#define FBP_CON_ADDR "192.168.0.255"
+#define FBP_CON_ADDR "192.168.60.255"
 
 #ifndef MAX
 #define	MAX(x, y) (((x) > (y)) ? (x) : (y))
@@ -27,95 +28,54 @@
 #define	MIN(x, y) (((x) < (y)) ? (x) : (y))
 #endif
 
+#define	IS_PAST(tf, tl)	(((tf).tv_sec == (tl).tv_sec) ? ((tf).tv_usec > (tl).tv_usec) : ((tf).tv_sec > (tl).tv_sec))
+#define	TIMEVAL_IS_ZERO(tv)	((tv).tv_sec == 0 && (tv).tv_usec == 0)
+#define	TIMEVAL_SUBSTRACT(th, tl)	(((th).tv_sec - (tl).tv_sec) * 1000000 + (th).tv_usec - (tl).tv_usec)
+#define	TIMEVAL_SET(tv, sec, usec)	do { (tv).tv_sec = sec; (tv).tv_usec = usec; } while(0)
+#define	TIMEVAL_CLEAR(tv)	TIMEVAL_SET((tv), 0, 0)
+
 int sfd, ffd;
 pkt_count offset;
 unsigned char fileid;
 struct sockaddr_in addr;
 socklen_t addrlen;
 struct Announcement apkt;
-#ifdef VERBOSE
 int packets_queued = 0;
-#endif
 BM_DEFINE(bitmask);
 
-// Rate limiting
-struct timeval packetInterval = {0, 0};
-int announce_rate = 1;
+#ifdef RATE_LIMIT
+int limit_pps = 10000;
+#endif
 
-#define	UPDATE_ANNOUNCE_RATE()	do { announce_rate = (100000 / MAX(1, packetInterval.tv_usec)) / 3; printf("New announce rate: %d\n", announce_rate); } while(0)
-
-ssize_t
-fbp_sendto(const void *buf, size_t len) {
-	ssize_t res;
-	int errors = 0;
-	while((res = sendto(sfd, buf, len, 0, (struct sockaddr *)&addr, addrlen)) == -1) {
-		if(errno == ENOBUFS && errors < 100) {
-			usleep(10000);
-			if(!errors) {
-				packetInterval.tv_usec += 100;
-				if(packetInterval.tv_usec > 1000000) {
-					packetInterval.tv_usec = 1000000;
-				}
-				puts("Error while sending; slowing down");
-				UPDATE_ANNOUNCE_RATE();
-				errors++;
-			} else {
-				puts("Error while sending");
-			}
-		} else {
-			err(1, "sendto");
-		}
+static void inline
+request_packet(int n) {
+	if(!BM_ISSET(bitmask, n)) {
+		packets_queued++;
+		BM_SET(bitmask, n);
 	}
-	return res;
+}
+
+static void inline
+fbp_sendto(const void *buf, size_t len) {
+	size_t res = sendto(sfd, buf, len, 0, (struct sockaddr *)&addr, addrlen);
+	if(res == -1) {
+		err(1, "sendto()");
+	}
 }
 
 void
-send_announce_packet() {
+transmit_announce_packet() {
 	printf("Announcing file %d\n", fileid);
+	apkt.status = (packets_queued > 0) ? FBP_STATUS_TRANSFERRING : FBP_STATUS_WAITING;
 	fbp_sendto(&apkt, sizeof(apkt));
 }
 
 void
-read_request() {
-	struct RequestPacket rpkt;
-	int i;
-	if(recv(sfd, &rpkt, sizeof(rpkt), 0) == -1) {
-		err(1, "recv");
-	}
-	for(i=0; 30 > i; i++) {
-		if(rpkt.requests[i].offset > apkt.numPackets || rpkt.requests[i].offset + rpkt.requests[i].num > apkt.numPackets) {
-			printf("Received invalid request range for fileid %d\n", rpkt.fileid);
-			return;
-		}
-		pkt_count n;
-		for(n = rpkt.requests[i].offset; rpkt.requests[i].offset + rpkt.requests[i].num > n; n++) {
-#ifdef VERBOSE
-			if(!BM_ISSET(bitmask, n)) {
-				packets_queued++;
-			}
-#endif
-			BM_SET(bitmask, n);
-		}
-	}
-	apkt.status = FBP_STATUS_TRANSFERRING;
-	puts("Going into transfermode");
-}
-
-void
-transfer_packet() {
+transmit_data_packet() {
+	assert(packets_queued > 0);
 	pkt_count n = offset % apkt.numPackets;
-	if(apkt.numPackets != 1) {
-		while(!BM_ISSET(bitmask, n)) {
-			n = (n+1) % apkt.numPackets;
-			if(n == (offset % apkt.numPackets)) {
-				apkt.status = FBP_STATUS_WAITING;
-				puts("Going into idlemode");
-#ifdef VERBOSE
-				assert(packets_queued == 0);
-#endif
-				return;
-			}
-		}
+	while(!BM_ISSET(bitmask, n)) {
+		n = (n+1) % apkt.numPackets;
 	}
 
 	struct DataPacket pkt;
@@ -128,26 +88,52 @@ transfer_packet() {
 			err(1, "lseek");
 		}
 	}
-	// printf("Yo, I'm going to read offset %d. So, I'm at %ld now.\n", n, (long)lseek(ffd, 0, SEEK_CUR));
+	printf("Yo, I'm going to read offset %d. So, I'm at %ld now.\n", n, (long)lseek(ffd, 0, SEEK_CUR));
 	if((len = read(ffd, pkt.data, FBP_PACKET_DATASIZE)) == -1) {
 		err(1, "read");
 	}
-	assert(len > 0 && (len == FBP_PACKET_DATASIZE || n == apkt.numPackets - 1));
-#ifdef VERBOSE
-	packets_queued--;
-#endif
-	BM_CLR(bitmask, n);
-	offset = n + 1;
-
-	// printf("Sending offset %d with data: %.*s\n", pkt.offset, len, pkt.data);
+	assert(len > 0);
+	assert(len == FBP_PACKET_DATASIZE || n == apkt.numPackets - 1);
 
 	fbp_sendto(&pkt, sizeof(pkt) - FBP_PACKET_DATASIZE + len);
+
+	offset = n + 1;
+	packets_queued--;
+	BM_CLR(bitmask, n);
+}
+
+void
+receive_packet() {
+	struct RequestPacket rpkt;
+	int i;
+	if(recv(sfd, &rpkt, sizeof(rpkt), 0) == -1) {
+		err(1, "recv");
+	}
+	for(i=0; 30 > i; i++) {
+		if(rpkt.requests[i].offset > apkt.numPackets || rpkt.requests[i].offset + rpkt.requests[i].num > apkt.numPackets) {
+			printf("Received invalid request range for fileid %d\n", rpkt.fileid);
+			return;
+		}
+		pkt_count n;
+		for(n = rpkt.requests[i].offset; rpkt.requests[i].offset + rpkt.requests[i].num > n; n++) {
+			request_packet(n);
+		}
+	}
 }
 
 int
 main(int argc, char **argv) {
-	assert((1 >> 1) == 0 /* require little endian */);
 	struct stat st;
+	fd_set rfds, wfds;
+	int want_announce = 1;
+	struct timeval now = { 0, 0 };
+#ifdef RATE_LIMIT
+	int patsts = limit_pps; // Packets allowed to send this second
+	struct timeval nextPacket = { 0, 0 };
+#endif
+
+	assert((1 >> 1) == 0 /* require little endian */);
+
 	if(argc != 3) {
 		fprintf(stderr, "Usage: %s <fid> <file>\n", argv[0]);
 		return 1;
@@ -187,14 +173,6 @@ main(int argc, char **argv) {
 
 	BM_INIT(bitmask, apkt.numPackets);
 
-/*
-	apkt.status = FBP_STATUS_TRANSFERRING;
-	BM_SET(bitmask, 0);
-#ifdef VERBOSE
-	packets_queued++;
-#endif
-*/
-
 	if((sfd = socket(addr.sin_family, SOCK_DGRAM, 0)) == -1) {
 		err(1, "socket");
 	}
@@ -204,46 +182,100 @@ main(int argc, char **argv) {
 		err(1, "setsockopt");
 	}
 
-	int i = 0;
-	UPDATE_ANNOUNCE_RATE();
 	while(1) {
-		fd_set fds;
-		struct timeval tmo = { 0, 0 };
+		struct timeval tmo = {0, 0};
+		int old_tv_sec = now.tv_sec;
+		int n;
 
-		if(apkt.status == FBP_STATUS_WAITING) {
-#ifdef VERBOSE
-			printf(" idle %d                       \r", (int)time(NULL));
-			fflush(stdout);
+		gettimeofday(&now, NULL);
+		if(now.tv_sec != old_tv_sec) {
+			want_announce = 1;
+#ifdef RATE_LIMIT
+			patsts = limit_pps;
+			TIMEVAL_CLEAR(nextPacket);
+			// puts("time barried killed");
 #endif
-			send_announce_packet();
-			tmo.tv_sec = 1;
-			tmo.tv_usec = 0;
-		} else {
-#ifdef VERBOSE
-			printf(" %d/%d     %d               \r", packets_queued, apkt.numPackets, (int)time(NULL));
-			fflush(stdout);
+		}
+#ifdef RATE_LIMIT
+		else if(IS_PAST(now, nextPacket)) {
+/*
+			if(!TIMEVAL_IS_ZERO(nextPacket)) {
+				puts("time barrier passed");
+			}
+*/
+			TIMEVAL_CLEAR(nextPacket);
+		}
 #endif
-			if(++i >= announce_rate) {
-				send_announce_packet();
-				i = 0;
-			}
-			transfer_packet();
-			tmo = packetInterval;
-			if((i % 50) > 0) {
-				usleep(tmo.tv_usec);
-				continue;
-			}
+
+		FD_ZERO(&rfds);
+		FD_ZERO(&wfds);
+		FD_SET(sfd, &rfds);
+#ifdef RATE_LIMIT
+		if(want_announce || (packets_queued && TIMEVAL_IS_ZERO(nextPacket)))
+#else
+		if(want_announce || packets_queued)
+#endif
+		{
+			FD_SET(sfd, &wfds);
 		}
 
-		FD_ZERO(&fds);
-		FD_SET(sfd, &fds);
-		switch(select(sfd+1, &fds, NULL, NULL, &tmo)) {
+#ifndef RATE_LIMIT
+		if(want_announce) {
+			n = select(sfd+1, &rfds, &wfds, NULL, NULL);
+		} else {
+#endif
+			tmo.tv_usec = 1000000 - now.tv_usec;
+#ifdef RATE_LIMIT
+			if(patsts > 0 && !TIMEVAL_IS_ZERO(nextPacket)) {
+				tmo.tv_usec = MIN(tmo.tv_usec, TIMEVAL_SUBSTRACT(nextPacket, now));
+			}
+/*
+			printf("Will select for %ld us%s\n", tmo.tv_usec, FD_ISSET(sfd, &wfds) ? " or write unlock" : "");
+*/
+			if(tmo.tv_usec < 0) {
+				printf("tmo: %ld.%ld\n", tmo.tv_sec, tmo.tv_usec);
+				printf("now: %ld.%ld\n", now.tv_sec, now.tv_usec);
+				printf("nextPacket: %ld.%ld\n", nextPacket.tv_sec, nextPacket.tv_usec);
+			}
+			assert(tmo.tv_usec >= 0);
+			assert(tmo.tv_usec < 1000000);
+#endif
+			n = select(sfd+1, &rfds, &wfds, NULL, &tmo);
+#ifndef RATE_LIMIT
+		}
+#endif
+		switch(n) {
 			case -1:
 				err(1, "select");
 			case 0:
 				continue;
-			case 1:
-				read_request();
+			default:
+				if(FD_ISSET(sfd, &wfds)) {
+					if(want_announce) {
+						transmit_announce_packet();
+						want_announce = 0;
+					} else {
+						transmit_data_packet();
+#ifdef RATE_LIMIT
+						printf("Sent %d/%d packet this second\n", limit_pps - patsts, limit_pps);
+						assert(TIMEVAL_IS_ZERO(nextPacket));
+						assert(patsts > 0);
+						patsts--;
+						nextPacket.tv_sec = now.tv_sec;
+						nextPacket.tv_usec = now.tv_usec + (1000000 / limit_pps);
+						while(nextPacket.tv_usec > 1000000) {
+							nextPacket.tv_sec++;
+							nextPacket.tv_usec -= 1000000;
+						}
+/*
+						printf("Set time barrier to %ld.%ld\n", nextPacket.tv_sec, nextPacket.tv_usec);
+*/
+#endif
+					}
+				}
+				if(FD_ISSET(sfd, &rfds)) {
+					receive_packet();
+				}
 				break;
 		}
 	}
