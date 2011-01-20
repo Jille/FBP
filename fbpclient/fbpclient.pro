@@ -6,9 +6,11 @@ TARGET = fbpclient
 TEMPLATE = app
 SOURCES += main.cpp \
     mainwindow.cpp \
-    fbpclient.cpp
+    fbpclient.cpp \
+    receiverthread.cpp
 HEADERS += mainwindow.h \
     fbpclient.h \
     ../common/fbp.h \
-    ../common/bitmask.h
+    ../common/bitmask.h \
+    receiverthread.h
 FORMS += mainwindow.ui

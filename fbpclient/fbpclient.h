@@ -1,27 +1,28 @@
 #ifndef FBPCLIENT_H
 #define FBPCLIENT_H
 
-#include <QUdpSocket>
-#include <QFile>
-#include <QTimer>
 #include <QDir>
-#include <QPair>
 #include <QMap>
+#include <QMutex>
+#include <QPair>
+#include <QTimer>
 
 #include "../common/fbp.h"
 #include "../common/bitmask.h"
 
 class QHostAddress;
+class ReceiverThread;
 
-class FbpClient : public QUdpSocket
+class FbpClient : public QObject
 {
 Q_OBJECT
+  friend class ReceiverThread;
+
 public:
     explicit FbpClient(quint16 port = FBP_DEFAULT_PORT, QObject *parent = 0);
     virtual ~FbpClient();
-    quint16  port() const;
-    void     setPort( quint16 port );
-    bool     isDownloadingFile( int id ) const;
+    void     startListening();
+    bool     isDownloadingFile( int id );
     const QString &fileNameForFile( int id ) const;
 
 signals:
@@ -32,36 +33,37 @@ signals:
   void       fileProgressChanged( int id, int progress );
   void       fileOverwriteWarning( int id, const QString &fn );
 
+  // For internal use only
+  void sendDatagram( const char*, qint64, QString, quint16 );
+
 public slots:
   void       startDownload( int id, const QDir &directory );
 
 private slots:
-   void      slotReadyRead();
    void      clearKnownFiles();
    void      sendRequest( int id );
    void      flushBitmask( int id );
    void      finishDownload( int id );
+   void      announcementReceived( struct Announcement *a, QString sender, quint16 port );
+   void      readDataPacket( struct DataPacket *d );
 
 private:
-
    struct KnownFile {
      char    id;
      QString fileName;
      pkt_count numPackets;
      time_t  lastAnnouncement;
-     QHostAddress server;
-     quint16      serverPort;
+     QString server;
+     quint16 serverPort;
      BM_DEFINE(bitmask);
    };
 
-   void      readAnnouncement( struct Announcement *a, int size,
-                               QHostAddress *sender, quint16 port );
-   void      readDataPacket( struct DataPacket *d, quint32 size );
    int       progressFromBitmask( const struct KnownFile *f ) const;
-   QFile    *file_;
+   QMap<int,QPair<QFile*,QFile*> > downloadingFiles_;
+   QMutex downloadingFilesMutex_;
+   ReceiverThread *thread_;
    QList<KnownFile*> knownFiles_;
    QTimer   *knownFileClearTimer_;
-   QMap<int,QPair<QFile*,QFile*> > downloadingFiles_;
 };
 
 #endif // FBPCLIENT_H

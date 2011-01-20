@@ -31,6 +31,8 @@ MainWindow::MainWindow(QWidget *parent) :
              this,          SLOT(  fileOverwriteWarning(int, QString)    ) );
     connect( fbp_,          SIGNAL(    downloadFinished(int, QString)    ),
              this,          SLOT(      downloadFinished(int, QString)    ) );
+
+    fbp_->startListening();
 }
 
 MainWindow::~MainWindow()
@@ -133,9 +135,9 @@ void MainWindow::fileAdded( int fileId, const QString &fileName, int startProgre
 
 void MainWindow::fileOverwriteWarning(int, const QString &fn)
 {
-  QMessageBox *mb = new QMessageBox;
-  mb->setText( "Could not save file: a file with that name already exists. The file was saved as " + fn);
-  mb->show();
+  QMessageBox *mb = new QMessageBox(QMessageBox::Critical, "File already exists",
+     "Could not save file: a file with that name already exists. The file was saved as " + fn );
+  mb->exec();
   return;
 }
 
