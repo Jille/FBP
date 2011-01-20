@@ -5,7 +5,7 @@
 
 #define FBP_DEFAULT_PORT        1026
 #define FBP_PACKET_DATASIZE     1024
-#define FBP_ANNOUNCE_VERSION    1
+#define FBP_ANNOUNCE_VERSION    2
 #define FBP_STATUS_WAITING      0
 #define FBP_STATUS_TRANSFERRING 1
 #define FBP_REQUESTS_PER_PACKET 30
@@ -15,7 +15,7 @@ typedef int32_t pkt_count;
 struct Announcement
 {
   char zero;            // ALWAYS 0, means this is an announcement packet
-  char announceVer;     // ALWAYS 1, means this is version 1 of the announcement
+  char announceVer;     // See FBP_ANNOUNCE_VERSION (must be equal to process)
   unsigned char fileid; // ID of the file (must be > 0)
   char status;          // 0=waiting, 1=transferring
   pkt_count numPackets; // 4 bytes: number of packets
