@@ -36,9 +36,9 @@ struct RequestPacket
 
 struct DataPacket
 {
-  unsigned char fileid;          // ID of the file (must be > 0)
+  unsigned char fileid; // ID of the file (must be > 0)
   char unused1;         // unused
-  unsigned short size;
+  unsigned short size;  // size of the data, excluding header (8 bytes)
   pkt_count offset;     // offset number of this packet
   char data[FBP_PACKET_DATASIZE]; // the actual data
 } __attribute__((__packed__));
