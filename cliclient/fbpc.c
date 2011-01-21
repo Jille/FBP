@@ -133,9 +133,9 @@ handle_announcement(struct Announcement *apkt, ssize_t pktlen, struct sockaddr_i
 		printf("handle_announcement(): [%d] Ready in %ld.%ld seconds\n", apkt->fileid, now.tv_sec, now.tv_usec);
 		char checksum[sizeof(apkt->checksum)];
 		sha1_file(checksum, t->fd);
-		if(strncmp(apkt->checksum, checksum, 40) != 0) {
+		if(strncmp(apkt->checksum, checksum, sizeof(checksum)) != 0) {
 			int n;
-			printf("handle_announcement(): [%d] Checksum mismatch: %.*s != %.*s. Restarting transfer.\n", apkt->fileid, 40, apkt->checksum, 40, checksum);
+			printf("handle_announcement(): [%d] Checksum mismatch: %.*s != %.*s. Restarting transfer.\n", apkt->fileid, sizeof(checksum), apkt->checksum, sizeof(checksum), checksum);
 			for(n = 0; apkt->numPackets > n; n++) {
 				BM_CLR(t->bitmask, n);
 			}
