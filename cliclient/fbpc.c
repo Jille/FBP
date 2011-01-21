@@ -48,7 +48,7 @@ start_transfer(struct Announcement *apkt, struct sockaddr_in *raddr, socklen_t r
 
 	char *fname;
 	asprintf(&fname, "data/%s", apkt->filename);
-	t->fd = open(fname, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+	t->fd = open(fname, O_RDWR | O_CREAT | O_TRUNC, 0644);
 	free(fname);
 	if(t->fd == -1) {
 		err(1, "open");
@@ -131,8 +131,18 @@ handle_announcement(struct Announcement *apkt, ssize_t pktlen, struct sockaddr_i
 			now.tv_sec++;
 		}
 		printf("handle_announcement(): [%d] Ready in %ld.%ld seconds\n", apkt->fileid, now.tv_sec, now.tv_usec);
-		close(t->fd);
-		t->fd = -1;
+		char checksum[sizeof(apkt->checksum)];
+		sha1_file(checksum, t->fd);
+		if(strncmp(apkt->checksum, checksum, 40) != 0) {
+			int n;
+			printf("handle_announcement(): [%d] Checksum mismatch: %.*s != %.*s. Restarting transfer.\n", apkt->fileid, 40, apkt->checksum, 40, checksum);
+			for(n = 0; apkt->numPackets > n; n++) {
+				BM_CLR(t->bitmask, n);
+			}
+		} else {
+			close(t->fd);
+			t->fd = -1;
+		}
 	}
 }
 
