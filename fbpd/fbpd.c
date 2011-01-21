@@ -19,8 +19,6 @@
 #include "fbp.h"
 #include "bitmask.h"
 
-#define FBP_CON_ADDR "192.168.60.255"
-
 #ifndef MAX
 #define	MAX(x, y) (((x) > (y)) ? (x) : (y))
 #endif
@@ -121,6 +119,16 @@ receive_packet() {
 	}
 }
 
+void
+usage(char *progname) {
+#ifdef RATE_LIMIT
+	fprintf(stderr, "Usage: %s [-b 192.168.0.255] [-p 100000] <fid> <file>\n", progname);
+#else
+	fprintf(stderr, "Usage: %s [-b 192.168.0.255] <fid> <file>\n", progname);
+#endif
+	exit(1);
+}
+
 int
 main(int argc, char **argv) {
 	struct stat st;
@@ -131,31 +139,51 @@ main(int argc, char **argv) {
 	int patsts = limit_pps; // Packets allowed to send this second
 	struct timeval nextPacket = { 0, 0 };
 #endif
+	char ch;
+	char *bcast_addr = "127.0.0.1";
 
 	assert((1 >> 1) == 0 /* require little endian */);
 
-	if(argc != 3) {
-		fprintf(stderr, "Usage: %s <fid> <file>\n", argv[0]);
-		return 1;
+	while((ch = getopt(argc, argv, "b:p:")) != -1) {
+		switch(ch) {
+			case 'b':
+				bcast_addr = optarg;
+				break;
+#ifdef RATE_LIMIT
+			case 'p':
+				limit_pps = strtol(optarg, (char **)NULL, 10);
+				if(limit_pps < 1 || limit_pps >= 1000000) {
+					fprintf(stderr, "%s: rate limi must be between 1 and 1000000\n", argv[0]);
+					usage(argv[0]);
+				}
+				break;
+#endif
+			default:
+				usage(argv[0]);
+		}
 	}
 
-	fileid = strtol(argv[1], (char **)NULL, 10);
+	if(argc - optind != 2) {
+		usage(argv[0]);
+	}
+
+	fileid = strtol(argv[optind + 0], (char **)NULL, 10);
 	if(fileid < 1) {
 		fprintf(stderr, "%s: fid must be between 1 and 255\n", argv[0]);
-		return 1;
+		usage(argv[0]);
 	}
 
-	if((ffd = open(argv[2], O_RDONLY)) == -1) {
-		err(1, "open(%s)", argv[2]);
+	if((ffd = open(argv[optind + 1], O_RDONLY)) == -1) {
+		err(1, "open(%s)", argv[optind + 1]);
 	}
 
 	if(fstat(ffd, &st) == -1) {
-		err(1, "fstat(%s)", argv[2]);
+		err(1, "fstat(%s)", argv[optind + 1]);
 	}
 
 	bzero(&addr, sizeof(addr));
 	addr.sin_family = AF_INET;
-	addr.sin_addr.s_addr = inet_addr(FBP_CON_ADDR);
+	addr.sin_addr.s_addr = inet_addr(bcast_addr);
 	addr.sin_port = htons(FBP_DEFAULT_PORT);
 	addrlen = sizeof(addr);
 
@@ -165,7 +193,7 @@ main(int argc, char **argv) {
 	apkt.fileid = fileid;
 	apkt.status = FBP_STATUS_WAITING;
 	apkt.numPackets = ceil(st.st_size / (double)FBP_PACKET_DATASIZE);
-	strncpy(apkt.filename, basename(argv[2]), sizeof(apkt.filename));
+	strncpy(apkt.filename, basename(argv[optind + 1]), sizeof(apkt.filename));
 	apkt.filename[sizeof(apkt.filename) - 1] = 0;
 
 	sha1_file(apkt.checksum, ffd);
@@ -224,7 +252,7 @@ main(int argc, char **argv) {
 			n = select(sfd+1, &rfds, &wfds, NULL, NULL);
 		} else {
 #endif
-			tmo.tv_usec = 1000000 - now.tv_usec;
+			tmo.tv_usec = 999999 - now.tv_usec;
 #ifdef RATE_LIMIT
 			if(patsts > 0 && !TIMEVAL_IS_ZERO(nextPacket)) {
 				tmo.tv_usec = MIN(tmo.tv_usec, TIMEVAL_SUBSTRACT(nextPacket, now));
@@ -232,7 +260,7 @@ main(int argc, char **argv) {
 /*
 			printf("Will select for %ld us%s\n", tmo.tv_usec, FD_ISSET(sfd, &wfds) ? " or write unlock" : "");
 */
-			if(tmo.tv_usec < 0) {
+			if(tmo.tv_usec < 0 || tmo.tv_usec >= 1000000) {
 				printf("tmo: %ld.%ld\n", tmo.tv_sec, tmo.tv_usec);
 				printf("now: %ld.%ld\n", now.tv_sec, now.tv_usec);
 				printf("nextPacket: %ld.%ld\n", nextPacket.tv_sec, nextPacket.tv_usec);
