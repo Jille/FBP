@@ -34,6 +34,9 @@ MainWindow::MainWindow(QWidget *parent) :
     #ifdef BRANDING_AUTOACCEPT
         ui->autoDownload->setChecked(true);
     #endif
+    #ifdef BRANDING_WINDOW_TITLE
+        setWindowTitle(BRANDING_WINDOW_TITLE);
+    #endif
 #endif
 
     ui->files->setColumnWidth( 0, 30 );

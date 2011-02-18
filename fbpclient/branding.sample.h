@@ -14,4 +14,7 @@
 // Automatically start downloading new files?
 //#define BRANDING_AUTOACCEPT
 
+// Set a custom window title
+//#define BRANDING_WINDOW_TITLE "My First File Broadcast Client"
+
 #endif // BRANDING_H
