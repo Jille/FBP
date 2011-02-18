@@ -1,3 +1,7 @@
+#if defined(PREFETCHING) && !defined(CACHING)
+#	error Can not enable prefetching without enabling caching
+#endif
+
 #include <arpa/inet.h>
 #include <assert.h>
 #include <err.h>
@@ -18,6 +22,7 @@
 #include <unistd.h>
 #include "fbp.h"
 #include "bitmask.h"
+#include "tree.h"
 
 #ifndef MAX
 #define	MAX(x, y) (((x) > (y)) ? (x) : (y))
@@ -45,6 +50,58 @@ BM_DEFINE(bitmask);
 int limit_pps = 10000;
 #endif
 
+struct cachedpacket {
+#ifdef CACHING
+	RB_ENTRY(cachedpacket) entry;
+#endif
+	struct DataPacket pkt;
+};
+
+#ifdef CACHING
+int
+cmppktoffset(struct cachedpacket *a, struct cachedpacket *b) {
+	if(a->pkt.offset == b->pkt.offset) {
+		return 0;
+	}
+	return (a->pkt.offset < b->pkt.offset) ? 1 : -1;
+}
+
+RB_HEAD(pktcache, cachedpacket) cachetree = RB_INITIALIZER(&cachetree);
+
+RB_PROTOTYPE_STATIC(pktcache, cachedpacket, entry, cmppktoffset);
+
+RB_GENERATE_STATIC(pktcache, cachedpacket, entry, cmppktoffset);
+
+int cachesize = 1;
+struct cachedpacket *cacheheap = NULL;
+BM_DEFINE(cachemask);
+
+struct cachedpacket *
+alloc_cachedpacket() {
+	int i;
+	for(i = 0; cachesize > i; i++) {
+		if(!BM_ISSET(cachemask, i)) {
+			BM_SET(cachemask, i);
+			return &(cacheheap[i]);
+		}
+	}
+	return NULL;
+}
+
+void
+free_cachedpacket(struct cachedpacket *cp) {
+	int i;
+	for(i = 0; cachesize > i; i++) {
+		if(cp == &(cacheheap[i])) {
+			assert(BM_ISSET(cachemask, i));
+			BM_CLR(cachemask, i);
+			return;
+		}
+	}
+	errx(1, "free_cachedpacket(%p): Packet unknown (heap: %p - %p)", cp, cacheheap, &(cacheheap[cachesize]));
+}
+#endif
+
 static void inline
 request_packet(int n) {
 	if(!BM_ISSET(bitmask, n)) {
@@ -68,34 +125,93 @@ transmit_announce_packet() {
 	fbp_sendto(&apkt, sizeof(apkt));
 }
 
+
 void
-transmit_data_packet() {
+fill_data_packet(struct cachedpacket *cp) {
+	ssize_t len;
+
+	cp->pkt.fileid = fileid;
+	// cp->pkt.offset = n; // deze is gevuld door de caller
+	if(cp->pkt.offset != offset) {
+		if(lseek(ffd, cp->pkt.offset*FBP_PACKET_DATASIZE, SEEK_SET) == -1) {
+			err(1, "lseek");
+		}
+	}
+	// printf("Yo, I'm going to read offset %d. So, I'm at %ld now.\n", n, (long)lseek(ffd, 0, SEEK_CUR));
+	if((len = read(ffd, cp->pkt.data, FBP_PACKET_DATASIZE)) == -1) {
+		err(1, "read");
+	}
+	cp->pkt.size = len;
+	assert(len > 0);
+	assert(len == FBP_PACKET_DATASIZE || cp->pkt.offset == apkt.numPackets - 1);
+	offset = cp->pkt.offset + 1;
+}
+
+struct cachedpacket *
+get_data_packet(int n) {
+	struct cachedpacket *cp;
+#ifdef CACHING
+	struct cachedpacket find, *fcp;
+
+	find.pkt.offset = n;
+	// We zoeken naar offset n, en als die niet bestaat degene met hoogste offset daaronder
+	fcp = RB_PFIND(pktcache, &cachetree, &find);
+	if(fcp == NULL) {
+		// Alles in de tree is hoger dan offset n
+		fcp = RB_MAX(pktcache, &cachetree);
+	}
+	if(fcp != NULL && fcp->pkt.offset == n) {
+		return fcp;
+	}
+	// We hebben niet de juiste packet gevonden
+	cp = alloc_cachedpacket();
+	if(cp == NULL) {
+		// We kunnen geen packet alloceren, we trashen cp en hergebruiken die
+		RB_REMOVE(pktcache, &cachetree, fcp);
+#ifndef NDEBUG
+		free_cachedpacket(fcp);
+		cp = alloc_cachedpacket();
+#else
+		cp = fcp;
+#endif
+	}
+#else
+	cp = malloc(sizeof(struct cachedpacket));
+#endif
+	assert(cp != NULL);
+	cp->pkt.offset = n;
+	fill_data_packet(cp);
+#ifdef CACHING
+	RB_INSERT(pktcache, &cachetree, cp);
+#endif
+	return cp;
+}
+
+pkt_count
+get_next_packet() {
 	assert(packets_queued > 0);
 	pkt_count n = offset % apkt.numPackets;
 	while(!BM_ISSET(bitmask, n)) {
 		n = (n+1) % apkt.numPackets;
 	}
+	return n;
+}
 
-	struct DataPacket pkt;
-	ssize_t len;
-	pkt.fileid = fileid;
-	pkt.offset = n;
-	if(n != offset) {
-		if(lseek(ffd, n*FBP_PACKET_DATASIZE, SEEK_SET) == -1) {
-			err(1, "lseek");
-		}
-	}
-	// printf("Yo, I'm going to read offset %d. So, I'm at %ld now.\n", n, (long)lseek(ffd, 0, SEEK_CUR));
-	if((len = read(ffd, pkt.data, FBP_PACKET_DATASIZE)) == -1) {
-		err(1, "read");
-	}
-	pkt.size = len;
-	assert(len > 0);
-	assert(len == FBP_PACKET_DATASIZE || n == apkt.numPackets - 1);
+#ifdef PREFETCHING
+void
+prefetch_packet() {
+	pkt_count n = get_next_packet();
+	get_data_packet(n);
+}
+#endif
 
-	fbp_sendto(&pkt, sizeof(pkt) - FBP_PACKET_DATASIZE + len);
+void
+transmit_data_packet() {
+	pkt_count n = get_next_packet();
+	struct cachedpacket *cp = get_data_packet(n);
 
-	offset = n + 1;
+	fbp_sendto(&cp->pkt, sizeof(struct DataPacket) - FBP_PACKET_DATASIZE + cp->pkt.size);
+
 	packets_queued--;
 	BM_CLR(bitmask, n);
 }
@@ -121,11 +237,14 @@ receive_packet() {
 
 void
 usage(char *progname) {
+	fprintf(stderr, "Usage: %s [-b 192.168.0.255] "
 #ifdef RATE_LIMIT
-	fprintf(stderr, "Usage: %s [-b 192.168.0.255] [-p 100000] <fid> <file>\n", progname);
-#else
-	fprintf(stderr, "Usage: %s [-b 192.168.0.255] <fid> <file>\n", progname);
+	"[-p 100000] "
 #endif
+#ifdef CACHING
+	"[-c 1] "
+#endif
+	"<fid> <file>\n", progname);
 	exit(1);
 }
 
@@ -144,7 +263,7 @@ main(int argc, char **argv) {
 
 	assert((1 >> 1) == 0 /* require little endian */);
 
-	while((ch = getopt(argc, argv, "b:p:")) != -1) {
+	while((ch = getopt(argc, argv, "b:p:c:")) != -1) {
 		switch(ch) {
 			case 'b':
 				bcast_addr = optarg;
@@ -153,7 +272,16 @@ main(int argc, char **argv) {
 			case 'p':
 				limit_pps = strtol(optarg, (char **)NULL, 10);
 				if(limit_pps < 1 || limit_pps >= 1000000) {
-					fprintf(stderr, "%s: rate limi must be between 1 and 1000000\n", argv[0]);
+					fprintf(stderr, "%s: rate limit must be between 1 and 1000000\n", argv[0]);
+					usage(argv[0]);
+				}
+				break;
+#endif
+#ifdef CACHING
+			case 'c':
+				cachesize = strtol(optarg, (char **)NULL, 10);
+				if(cachesize < 1 || cachesize >= 1000000) {
+					fprintf(stderr, "%s: cachesize must be between 1 and 1000000\n", argv[0]);
 					usage(argv[0]);
 				}
 				break;
@@ -200,6 +328,14 @@ main(int argc, char **argv) {
 	offset = apkt.numPackets;
 
 	BM_INIT(bitmask, apkt.numPackets);
+
+#ifdef CACHING
+	BM_INIT(cachemask, cachesize);
+	cacheheap = malloc(cachesize * sizeof(struct cachedpacket));
+	if(cacheheap == NULL) {
+		err(1, "malloc() (cache)");
+	}
+#endif
 
 	if((sfd = socket(addr.sin_family, SOCK_DGRAM, 0)) == -1) {
 		err(1, "socket");
@@ -267,6 +403,11 @@ main(int argc, char **argv) {
 			}
 			assert(tmo.tv_usec >= 0);
 			assert(tmo.tv_usec < 1000000);
+#endif
+#ifdef PREFETCHING
+			if(packets_queued > 0 && (tmo.tv_sec != 0 || tmo.tv_usec != 0)) {
+				prefetch_packet();
+			}
 #endif
 			n = select(sfd+1, &rfds, &wfds, NULL, &tmo);
 #ifndef RATE_LIMIT
