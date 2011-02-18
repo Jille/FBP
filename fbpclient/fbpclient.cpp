@@ -156,6 +156,9 @@ bool FbpClient::isDownloadingFile( int id )
 
 int FbpClient::progressFromBitmask( const struct KnownFile *k ) const
 {
+  if( !k->bitmask )
+    return 0;
+
   double numPackets = (double)k->numPackets;
   int packetsDone = 0;
   for( int i = 0; i < numPackets; ++i )
@@ -197,6 +200,7 @@ void FbpClient::announcementReceived( struct Announcement *a, QString sender, qu
     k->numPackets = a->numPackets;
     k->server     = sender;
     k->serverPort = port;
+    k->bitmask    = 0;
     knownFiles_.append( k );
     index         = knownFiles_.size()-1;
 
