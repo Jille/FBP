@@ -22,7 +22,7 @@ MainWindow::MainWindow(QWidget *parent) :
     // Search for BRANDING_LOGO
     QString brandingLogo( BRANDING_LOGO );
     QString prevDir("../");
-    for(int i = 0; i < 4; ++i)
+    for(int i = 0; i < 6; ++i)
     {
       if( QFile::exists(prevDir.repeated(i) + brandingLogo) )
       {
