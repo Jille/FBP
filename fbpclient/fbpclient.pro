@@ -12,5 +12,6 @@ HEADERS += mainwindow.h \
     fbpclient.h \
     ../common/fbp.h \
     ../common/bitmask.h \
-    receiverthread.h
+    receiverthread.h \
+    branding.h
 FORMS += mainwindow.ui

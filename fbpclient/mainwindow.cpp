@@ -7,12 +7,34 @@
 #include <QtGui/QMessageBox>
 #include <QtCore/QTemporaryFile>
 
+#include "branding.h"
+
 MainWindow::MainWindow(QWidget *parent) :
     QMainWindow(parent),
     ui(new Ui::MainWindow),
     fbp_(new FbpClient())
 {
     ui->setupUi(this);
+
+#ifndef BRANDING
+    ui->branding->hide();
+#else
+    // Search for BRANDING_LOGO
+    QString brandingLogo( BRANDING_LOGO );
+    QString prevDir("../");
+    for(int i = 0; i < 4; ++i)
+    {
+      if( QFile::exists(prevDir.repeated(i) + brandingLogo) )
+      {
+        brandingLogo.prepend(prevDir.repeated(i));
+      }
+    }
+    QPixmap logo(brandingLogo);
+    ui->branding->setPixmap(logo);
+    #ifdef BRANDING_AUTOACCEPT
+        ui->autoDownload->setChecked(true);
+    #endif
+#endif
 
     ui->files->setColumnWidth( 0, 30 );
     ui->files->setColumnWidth( 1, 250 );
