@@ -46,6 +46,7 @@ private slots:
    void      finishDownload( int id );
    void      announcementReceived( struct Announcement *a, QString sender, quint16 port );
    void      readDataPacket( struct DataPacket *d );
+   void      updateInterface();
 
 private:
    struct KnownFile {
@@ -64,6 +65,7 @@ private:
    ReceiverThread *thread_;
    QList<KnownFile*> knownFiles_;
    QTimer   *knownFileClearTimer_;
+   QTimer   *updateInterfaceTimer_;
 };
 
 #endif // FBPCLIENT_H

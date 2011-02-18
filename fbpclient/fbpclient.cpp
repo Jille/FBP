@@ -7,6 +7,7 @@ FbpClient::FbpClient(quint16 port, QObject *parent)
 : QObject(parent)
 , thread_( new ReceiverThread(port, this) )
 , knownFileClearTimer_( new QTimer() )
+, updateInterfaceTimer_( new QTimer() )
 {
   // If this is a big-endian system, crash
   Q_ASSERT((1 >> 1) == 0);
@@ -20,10 +21,16 @@ FbpClient::FbpClient(quint16 port, QObject *parent)
 
   connect( knownFileClearTimer_, SIGNAL(         timeout() ),
            this,                 SLOT(   clearKnownFiles() ) );
+  connect( updateInterfaceTimer_, SIGNAL(        timeout() ),
+           this,                  SLOT(  updateInterface() ) );
 
   knownFileClearTimer_->setSingleShot( false );
   knownFileClearTimer_->setInterval( 5000 );
   knownFileClearTimer_->start();
+
+  updateInterfaceTimer_->setSingleShot( false );
+  updateInterfaceTimer_->setInterval( 200 );
+  updateInterfaceTimer_->start();
 }
 
 FbpClient::~FbpClient()
@@ -63,6 +70,7 @@ void FbpClient::finishDownload( int id )
   downloadingFilesMutex_.unlock();
 
   qDebug() << "finishDownload for" << id;
+  emit fileProgressChanged( id, 100 );
 
   int index = -1;
   for( int i = 0; i < knownFiles_.size(); ++i )
@@ -92,7 +100,6 @@ void FbpClient::finishDownload( int id )
   newFile->close();
   delete newFile; delete bitmask;
 
-  emit fileProgressChanged( id, 100 );
   emit downloadFinished( id, knownFiles_[index]->fileName );
 }
 
@@ -313,7 +320,6 @@ void FbpClient::readDataPacket( struct DataPacket *d )
     // Flush bitmask file to disk
     flushBitmask( id );
 
-    emit fileProgressChanged( id, progressFromBitmask( knownFiles_[index] ) );
     goto endparse;
   }
 
@@ -493,4 +499,23 @@ void FbpClient::startDownload( int id, const QDir &downloadDir )
 void FbpClient::startListening()
 {
   thread_->start(QThread::HighestPriority);
+}
+
+void FbpClient::updateInterface()
+{
+  downloadingFilesMutex_.lock();
+  QList<int> ids = downloadingFiles_.keys();
+  downloadingFilesMutex_.unlock();
+
+  foreach(int id, ids)
+  {
+    int index = -1;
+    for( int i = 0; i < knownFiles_.size(); ++i )
+      if( knownFiles_[i]->id == id ) index = i;
+    if(index < 0)
+      continue;
+
+    // Update the GUI
+    emit fileProgressChanged( id, progressFromBitmask( knownFiles_[index] ) );
+  }
 }
