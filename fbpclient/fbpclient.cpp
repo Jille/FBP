@@ -352,6 +352,7 @@ void FbpClient::sendRequest( int id )
   // First, we should determine what parts of the file we miss
   long offset  = -1;
   int  numPackets = 0;
+  int  datagramsSent = 0;
 
   // This is a very inefficient method, we should use bitwise comparison
   // of a full byte at once until an unset bit is found. Stuff for later.
@@ -379,7 +380,12 @@ void FbpClient::sendRequest( int id )
         // send no more than 30 requests in one packet
         if( requestNum >= FBP_REQUESTS_PER_PACKET )
         {
-          break;
+          datagramsSent++;
+          emit sendDatagram( (const char*)rp, sizeof(struct RequestPacket),
+                             knownFiles_[index]->server, knownFiles_[index]->serverPort );
+          rp = new struct RequestPacket;
+          rp->fileid = id;
+          requestNum = 0;
         }
       }
       // otherwise, go on searching, we haven't found the first range yet
@@ -399,7 +405,7 @@ void FbpClient::sendRequest( int id )
 
   // If we have all packages, no request needs to be sent
   qDebug() << "RequestNum=" << requestNum;
-  if( requestNum == 0 )
+  if( requestNum == 0 && datagramsSent == 0 )
   {
     finishDownload( id );
     delete rp;
