@@ -38,7 +38,7 @@ sha1_file(char *out, int fd) {
 	}
 	if(SHA1_Update(&c, mdata, st.st_size) == 0) {
 		errno = 0;
-		err(1, "SHA1_Final() failed; possible cause");
+		err(1, "SHA1_Update() failed; possible cause");
 	}
 	if(munmap(mdata, st.st_size) == -1) {
 		warn("munmap");
@@ -53,7 +53,7 @@ mmap_failed:
 	while((len = read(fd, buf, sizeof(buf))) > 0) {
 		if(SHA1_Update(&c, buf, len) == 0) {
 			errno = 0;
-			err(1, "SHA1_Final() failed; possible cause");
+			err(1, "SHA1_Update() failed; possible cause");
 		}
 	}
 	if(len == -1) {
